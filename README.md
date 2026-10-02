@@ -219,6 +219,7 @@ Timetable data adheres to the following JSON structure:
 ├── .gitignore
 ├── README.md
 ├── documentation.md              # Beginner-friendly Stone-Age User Guide
+├── LICENSE.md                    # Creative Commons Attribution-NonCommercial-ShareAlike 4.0
 ├── main.py                       # Project entry point
 └── src/
     ├── __init__.py
@@ -247,3 +248,9 @@ output/
     ├── modified.json     # Final state post modifications
     └── output.pdf        # High-fidelity vector PDF reconstruction (with bold rooms)
 ```
+
+---
+
+## License
+
+This project, its source code, documentation, and reconstructed schedule templates are licensed under the **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)** license. See [`LICENSE.md`](file:///home/leonidas/PycharmProjects/UWM_better_schedule/LICENSE.md) for the full license terms.

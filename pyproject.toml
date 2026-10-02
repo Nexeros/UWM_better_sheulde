@@ -3,6 +3,10 @@ name = "uwm-better-schedule"
 version = "0.1.0"
 description = "Production-grade modular timetable parser, editor, and PDF reconstructor"
 readme = "README.md"
+license = { text = "CC-BY-NC-SA-4.0" }
+authors = [
+    { name = "Nexeros", email = "picasso.vol2@gmail.com" }
+]
 requires-python = ">=3.11"
 dependencies = [
     "pdfplumber>=0.11.0",
