@@ -1,11 +1,11 @@
-# The Stone-Age Guide to UWM Better Schedule 🦖📅
-*A complete, beginner-friendly walkthrough for human beings who just want their university timetable fixed without getting a headache.*
+# The Stone-Age Guide to UWM Better Schedule 🦣📅
+*A complete, beginner-friendly walkthrough for human beings who just want their university timetable fixed or generated from scratch without getting a headache.*
 
 ---
 
 ## 1. Why Does This Program Exist? (The Problem We Solve)
 
-If you are a student or teacher at the University of Warmia and Mazury (UWM), you are probably very familiar with this sight:
+If you are a student, teacher, or dean's office coordinator at the University of Warmia and Mazury (UWM), you are probably very familiar with this sight:
 Every semester, timetables are published as **giant PDF documents exported from spreadsheets (like LibreOffice Calc or Excel)**. 
 
 While they look okay on a huge monitor if you zoom in 300%, they are a nightmare in real life:
@@ -13,147 +13,169 @@ While they look okay on a huge monitor if you zoom in 300%, they are a nightmare
 - **Impossible to edit:** If a class time changes or you want to delete a lecture you aren't attending, you have to recreate the whole table from scratch.
 - **Unfriendly to calendar apps:** You can't just copy-paste the schedule into Google Calendar or Notion without manually typing every single subject, hour, and room.
 - **Messy layout bugs:** Columns misalign, rows have uneven heights, and printing them on a standard sheet of paper often cuts off half the text.
+- **The Timetable Creation Nightmare:** Building a brand-new semester timetable by hand without teachers having two classes at once, without two groups ending up in the same computer lab, and without students having 5-hour empty gaps ("okienka") takes weeks of painful spreadsheet juggling.
 
 **UWM Better Schedule** is here to fix that once and for all:
-1. It **reads** the messy, complicated university PDF timetable.
-2. It **converts** it into clean, neat computer data (JSON).
-3. It lets you **edit, add, or remove** any classes using simple clicks and keyboard buttons.
-4. It **rebuilds a brand new, crisp vector PDF** with bold room numbers, perfectly aligned group rows, and beautiful colors ready for printing or your phone.
+1. **Mode 1 — Schedule Editor:** It reads messy university PDF timetables, lets you edit them, and rebuilds high-resolution, bold-room PDFs.
+2. **Mode 2 — Schedule Generator Wizard:** It uses **Google's world-class CP-SAT mathematical solver** to automatically construct collision-free schedules for all student groups and lecturers in less than a second!
 
 ---
 
 ## 2. What the Program Does (In Plain English)
 
-Imagine you have a magic assistant sitting on your desk:
-1. You hand the assistant an official UWM timetable PDF.
-2. The assistant reads every line:
-   - *"Aha! On Monday from 14:00 to 15:30, both groups have 'Aplikacje WWW' in room C0/1 with lecturer Ropiak K."*
-3. The assistant presents a neat window with tabs for **Monday, Tuesday, Wednesday, Thursday, and Friday**.
-4. You can say: *"Remove this class,"* or *"Add a new workshop on Friday,"* or *"Change the room number."*
-5. You press one button (or `Ctrl+S`), and the assistant draws a **brand-new, high-resolution PDF timetable** with crisp lines and **bold room numbers** that stand out clearly at a glance!
+Imagine you have two super-smart assistants sitting on your desk:
+
+### Assistant A: The Schedule Editor 📅
+- Reads an existing UWM timetable PDF.
+- Shows you what classes are happening on Monday, Tuesday, Wednesday, Thursday, and Friday.
+- Lets you add, edit, or delete any class with simple clicks.
+- Re-draws a crisp vector PDF with bold rooms and clean colors when you hit `Ctrl+S`.
+
+### Assistant B: The Schedule Generator Wizard 🪄
+- Asks you 6 simple questions (What classes do you have? Who teaches them? What labs exist? When are teachers busy?).
+- Feeds all these rules to an automated mathematical brain (CP-SAT).
+- Solves the entire puzzle in 0.03 seconds!
+- Gives you ready-to-print PDFs for every student group AND personalized timetable PDFs for every teacher!
 
 ---
 
 ## 3. How to Launch It (One Simple Command)
 
-You do **not** need to install ten different complicated tools. You only need **one single command** typed into your terminal.
+You only need **one single command** typed into your terminal:
 
-### The Magic Command:
 ```bash
 uv run main.py
 ```
 
-That's it!
-- The program will automatically check if you have a graphic screen.
-- If you are on a normal computer with a desktop (Windows, Mac, or Linux with a display), it opens the **graphical window (GUI)**.
-- If you are running on a server or terminal without a graphical screen, it automatically launches the **interactive terminal menu (TUI)** so you are never stuck.
+- If you want to jump straight into the **Generator Wizard**:
+  ```bash
+  uv run main.py --mode create
+  ```
+- If you want the **Interactive Terminal Menu (TUI)**:
+  ```bash
+  uv run main.py --tui
+  ```
 
 ---
 
-## 4. How to Feed It a PDF File (No Coding Required!)
+## 4. Switching Modes (Editor vs Generator)
 
-You don't need to write file paths in computer code. There are two super easy ways:
+At the top of the graphical window, you will always see two mode buttons:
+```
+[ 📅 Schedule Editor ]    [ 🪄 Schedule Generator Wizard ]
+```
+Click either button (or press `Ctrl+M`) to switch instantly between editing an existing timetable and generating a new one from scratch!
+
+---
+
+## 5. Mode 1: Editing Existing Schedules
 
 ### Method A: The "Drop and Forget" Folder (Easiest!)
-1. Open your computer's regular file explorer (Files, Finder, or Explorer).
-2. Go into the project directory and look for the folder named:
-   ```text
-   input
-   ```
-   *(If it's not there yet, don't worry! Running the program once creates it automatically).*
-3. **Drag and drop** your university timetable PDF (for example, `IV-io 2gr zima 2026.pdf`) right inside the `input` folder.
-4. Launch the program with `uv run main.py`.
-5. The program **automatically finds your newest PDF** and opens it right up!
+1. Drop your timetable PDF into the `input/` folder in the project directory.
+2. Run `uv run main.py`.
+3. It opens automatically!
 
-### Method B: The "Browse" Button (Like Any Normal App)
-1. Launch the program: `uv run main.py`.
-2. At the top of the window, you will see a button that says:
-   **📁 Browse / Load File...** (or simply press `Ctrl+O` on your keyboard).
-3. A standard file selection window pops up.
-4. Click on whatever PDF schedule you want to open, and click **Open**.
-5. Boom! Your schedule appears instantly on your screen.
+### Method B: The "Browse" Button
+1. Click **📁 Browse / Load File...** (or press `Ctrl+O`).
+2. Select any PDF timetable on your computer.
+
+### Editing, Deleting, and Adding Classes
+- **Edit:** Click any class, press `Enter`, change what you want, and save.
+- **Delete:** Click any class, press `Delete` or `Backspace`.
+- **Add:** Click **+ Add Slot**, fill in the details, and press `Enter`.
+- **Save:** Click **Save & Regenerate PDF** (or press `Ctrl+S`).
 
 ---
 
-## 5. How to Edit Schedules with Mouse Clicks & Keyboard Keys
+## 6. Mode 2: Generating a New Schedule from Scratch (6-Step Wizard)
 
-Once your timetable is loaded, you can manage it with zero stress:
+Click **🪄 Schedule Generator Wizard** and follow the step-by-step progress bar:
 
-### Looking at Your Week
-- Along the top of the schedule view, you'll see tabs for each day: **Monday**, **Tuesday**, **Wednesday**, **Thursday**, **Friday**.
-- Click any day to see all classes scheduled for that day.
-- Or use `Ctrl+Tab` on your keyboard to flip through the days like a notebook.
+### Step 1: Academic Structure (Who are the students?)
+- Define your study cycle (e.g. *stacjonarne inżynierskie I-go stopnia*).
+- Add academic years (e.g. *IV ROK*).
+- Define student groups (e.g. *Grupa 1* with 16 students, *Grupa 2* with 16 students).
+- *The program automatically checks that group counts don't exceed your specialization limits!*
 
-### Editing a Class
-1. Click on any class row you want to change.
-2. Click **Edit Selected** (or just press the `Enter` key on your keyboard!).
-3. A little popup window will appear with all the details:
-   - *Subject name*
-   - *Hours (e.g. 08:15-09:45)*
-   - *Instructor name*
-   - *Room number*
-   - *Class type (Lecture, Lab, Seminar, Project)*
-4. Change whatever you want, and click **Confirm** (or press `Enter`).
+### Step 2: Facilities (Where can classes happen?)
+- Add your lecture halls (e.g. *Aula A1*, capacity 60).
+- Add computer labs (e.g. *E 1/16*, capacity 20).
+- Add general classrooms.
+- *The solver makes sure no two classes ever share the same room at the same time.*
 
-### Deleting a Class
-1. Click on the class you want to remove.
-2. Click **Delete Selected** (or press the `Delete` or `Backspace` key on your keyboard).
-3. The program will ask: *"Are you sure you want to delete this class?"*
-4. Confirm, and it's gone!
+### Step 3: Curriculum (What courses need to be taught?)
+- Enter subjects like *Testowanie oprogramowania* or *Programowanie w UNITY*.
+- Set session duration (e.g. 90 minutes) and required room type (*Computer Lab*, *Lecture Hall*).
+- Specify whether the whole year attends together or if it's split into separate group labs.
 
-### Adding a New Class
-1. Go to the day where you want to add the class.
-2. Click the **+ Add Slot** button.
-3. Fill in the details in the popup window.
-4. Press `Enter` or click **Confirm**. Your new class is added and sorted into the right time slot automatically!
+### Step 4: Academic Staff (Who is teaching?)
+- Add lecturers and professors (e.g. *Dr hab. Jan Kowalski*, *Prof. Adam Wiśniewski*).
+- Set their maximum daily and weekly teaching hours.
+- Set their **forbidden windows** (e.g. *Prof. Kowalski has Faculty Council every Friday after 14:00 and cannot teach then*).
 
-### Clearing a Mistake
-- Selected the wrong thing? Just hit the `Escape` (`Esc`) key on your keyboard to clear the selection.
+### Step 5: Subgroups & Conflict Rules (Special conditions)
+- Add elective subgroups (students from Group 1 and Group 2 taking an elective track together).
+- Add custom conflict rules (e.g. *Unity Lecture must never happen at the same time as Unity Lab*).
+
+### Step 6: Time Horizon & Global Rules (When does school happen?)
+- Select working days (Monday through Friday).
+- Set daily school hours (e.g. 08:00 to 20:00).
+- Check the optimization options:
+  - **Minimize Student Gaps:** Eliminates boring 3-hour waiting gaps between classes.
+  - **Minimize Worker Gaps:** Groups teacher hours tightly together so they don't have to wait around.
+  - **Prevent Single-Class Days:** Avoids making students come to university for just one 45-minute class.
+
+### Solving the Puzzle!
+Click **⚡ Solve Schedule** (or press `Ctrl+Enter`):
+- The mathematical solver will run in ~0.03 seconds.
+- You will see a success message showing the exact number of classes scheduled.
+- Click **Yes** to instantly preview your newly solved timetable inside the visual editor!
 
 ---
 
-## 6. Saving and Getting Your New PDF Timetable
+## 7. Headless CLI Generation (For Scripts & Automation)
 
-When you are happy with your schedule:
-1. Click the button at the bottom right: **Save & Regenerate PDF** (or press `Ctrl+S`).
-2. A friendly popup will tell you that your new timetable has been created!
+If you love the terminal or want to run schedule generation on a remote server:
 
----
+```bash
+# Export the pre-built UWM Computer Science Year 4 configuration template
+uv run main.py --sample-config my_config.json
 
-## 7. Where to Find Your Finished Files (The Output Folder)
-
-Every time you save or run the program, it creates a dedicated, organized time-stamped folder inside the:
-```text
-output/
-```
-directory.
-
-Inside `output/`, you will see folders named like this:
-```text
-output/2026-10-02_09-30-00_IV-io_2gr_zima_2026/
+# Run the automated solver and export all files
+uv run main.py --create-from-config my_config.json --output-dir ./output
 ```
 
-Inside that folder, you have everything:
+---
 
-| File Name | What It Is |
-|---|---|
-| 📄 **`output.pdf`** | **Your shiny, brand-new timetable PDF!** Double-click to open it, print it, or save it to your phone. All room numbers are in bold for quick reading. |
-| 📋 **`modified.json`** | The complete timetable data in clean computer format, including any changes you made. |
-| 📑 **`extracted.json`** | A backup of the timetable exactly as it was originally read from the input PDF before your changes. |
-| 📝 **`execution.log`** | A text diary explaining everything the program did step-by-step (handy if you ever want to check what happened). |
+## 8. Where to Find Your Finished Files (The Output Folder)
+
+Every time you generate or save a schedule, a new timestamped folder appears inside `./output/`:
+
+```text
+output/2026-10-02_11-30-00_generated_schedule/
+├── execution.log             # Full diary of how the solver calculated the schedule
+├── schedule_students.json    # Complete student timetable data
+├── schedule_workers.json     # Complete teacher timetable data
+├── student_IV_ROK_-_Specjalność_Ogólna.pdf  # Ready-to-print student schedule PDF!
+├── staff_Dr_inż._Tomasz_Nowak.pdf           # Personalized schedule for Dr Nowak!
+├── staff_Dr_hab._Jan_Kowalski_prof._UWM.pdf # Personalized schedule for Prof. Kowalski!
+└── ...
+```
 
 ---
 
-## 8. Summary Cheat Sheet for Keyboard Ninjas
+## 9. Summary Cheat Sheet for Keyboard Ninjas
 
 | What You Want To Do | Keyboard Key |
 |---|---|
-| Open a new PDF schedule | `Ctrl + O` (or `Cmd + O` on Mac) |
-| Save and make the new PDF | `Ctrl + S` (or `Cmd + S` on Mac) |
-| Delete the highlighted class | `Delete` or `Backspace` |
-| Edit the highlighted class | `Enter` |
-| Cancel or unselect | `Escape` (`Esc`) |
-| Move up and down classes | `Up Arrow` / `Down Arrow` |
-| Switch between days | `Ctrl + Tab` |
+| Toggle Editor / Generator Mode | `Ctrl + M` (or click top mode buttons) |
+| Open a new PDF schedule | `Ctrl + O` |
+| Save and make new PDF | `Ctrl + S` |
+| Advance to Next Wizard Step | `Enter` |
+| Go back to Previous Wizard Step | `Escape` (`Esc`) or `Backspace` |
+| Solve the Generation Wizard | `Ctrl + Enter` |
+| Delete highlighted class slot | `Delete` or `Backspace` |
+| Edit highlighted class slot | `Enter` |
+| Switch between weekday tabs | `Ctrl + Tab` |
 
-*That's literally everything you need to know. You are now a master of your university timetable! 🎓🚀*
+*That's literally everything you need to know. You have the ultimate university scheduling powerhouse at your fingertips! 🎓🚀*

@@ -36,13 +36,13 @@ env.bak/
 venv.bak/
 
 # Output directories & artifacts
-output/
-/output/
+output/*
+/output/*
 *.log
 
 # Input directories
-input/
-/input/
+input/*
+/input/*
 *.pdf
 
 # IDE and Editors
