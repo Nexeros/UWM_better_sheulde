@@ -298,9 +298,19 @@ class TimetableParser:
             height=b_h,
         )
 
+        footer_y_base = day_positions["friday"] + day_total_h + 16.0
+        parsed_loc_words = [
+            w for w in words
+            if w["top"] >= day_positions["friday"] + day_total_h
+            and abs(w["top"] - footer_y_base) < 20.0
+            and w["x0"] < b_x0 + 260.0
+        ]
+        parsed_loc_note = " ".join(w["text"] for w in sorted(parsed_loc_words, key=lambda w: w["x0"])).strip() or None
+
         footer = FooterMetadata(
-            location_note="Wszystkie sale na ul. Słonecznej 54.",
-            y_base=day_positions["friday"] + day_total_h + 16.0,
+            campus_location_note=parsed_loc_note,
+            location_note=parsed_loc_note,
+            y_base=footer_y_base,
         )
 
         return TimetableLayout(

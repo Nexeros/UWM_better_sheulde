@@ -1,219 +1,237 @@
-# UWM Better Schedule
+# 📅 UWM Better Schedule — Academic Timetable Suite
 
-A production-grade, modular Python application to parse, modify, visually reconstruct, and **automatically generate** conflict-free university academic timetables. Powered by **Google OR-Tools CP-SAT**, ReportLab vector rendering, and Pydantic v2 validation. Specifically designed and calibrated for University of Warmia and Mazury (UWM Olsztyn) timetable standards.
-
----
-
-## 🌟 Key Features
-
-- **Dual-Mode System Switch**:
-  - **Schedule Editor Mode**: Load, view, modify, add, delete, and reconstruct existing timetable schedules from PDF or JSON.
-  - **Schedule Generator Wizard Mode**: End-to-end multi-step wizard to formulate academic requirements and automatically solve complex scheduling constraints via Google OR-Tools CP-SAT.
-- **Interactive Quick Test / Demo Mode**:
-  - **One-Click Test Data Loading**: `[ 🧪 Load Test Data ]` populates realistic academic requirements across all 6 wizard steps (1 year, 2 specializations, 4 balanced student groups, 5 facilities, 4 instructors with custom availability, 9 courses, and 2 elective subgroups).
-  - **Instant Verification Dialog**: `[ ⚡ Quick Test & Solve ]` solves the schedule directly and displays a dedicated **Verification & Audit Modal** with zero-collision verification, solver timing, and interactive schedule previews for students and staff.
-- **Automated CP-SAT Constraint Programming Solver**:
-  - **Hard Constraints**: Room collision prevention, lecturer collision prevention, lecturer forbidden time windows (faculty councils, off-hours), student group non-overlapping, cross-group subgroup constraints, explicit conflict rules, and maximum daily/weekly teaching and study hour limits.
-  - **Soft Optimization Objectives**: Minimization of student idle gaps (okienka), minimization of faculty teaching spans, and elimination of isolated single-class days.
-  - **Instant Diagnostics**: High-speed resolution (< 0.05s) with automated bottleneck detection and conflict reports when a configuration is infeasible.
-- **Automated Artifact Pipeline (`/output/`)**:
-  - `schedule_students.json`: Structured timetables grouped by study cycle, year, and specialization.
-  - `schedule_workers.json`: Individual timetables for every lecturer and faculty member.
-  - `execution.log`: Full audit trail of solver decisions, objective metrics, and session allocations.
-  - **High-Fidelity Vector PDFs**: Layout-matched student and staff PDF schedules with pastel category swatches, bold room identifiers, and 15-minute grid spacing.
-- **Triple-Tier Interface Strategy**:
-  - **Primary (GUI)**: Tkinter application with top-level mode switch, responsive 6-step wizard, interactive dialogs, and instant schedule preview.
-  - **Secondary (TUI)**: Rich terminal UI with interactive menus, step-by-step forms, presets loader, and keyboard-first navigation.
-  - **Tertiary (CLI)**: Non-interactive scripting flags (`--create-from-config`, `--sample-config`, `--headless`, `--add`, `--delete-day`) for automated batch processing.
+A production-grade, modular Python application designed to inspect, edit, visually reconstruct, and **automatically generate conflict-free university timetables**. Powered by **Google OR-Tools CP-SAT**, ReportLab vector rendering, and Pydantic v2 validation. Calibrated specifically for the scheduling standards of the University of Warmia and Mazury (UWM Olsztyn).
 
 ---
 
-## 🚀 Quick Start
+## ⚡ One-Line Launch
 
-### Installation with `uv`
-
-This project uses [`uv`](https://docs.astral.sh/uv/) for fast, deterministic dependency management.
+You can run the entire application with a single command using [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-# Clone or navigate to the repository
-cd /path/to/UWM_better_schedule
-
-# Sync environment and dependencies (includes ortools, reportlab, pydantic, rich, pypdf, pytest)
-uv sync
+uv run main.py
 ```
 
+> [!TIP]
+> **Don't have `uv` installed?** Install it in seconds:
+> - **Linux & macOS**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+> - **Windows (PowerShell)**: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+> 
+> Alternatively, if using a standard Python 3.10+ virtual environment:
+> ```bash
+> pip install -r requirements.txt   # or pip install -e .
+> python main.py
+> ```
+
 ---
 
-## 🧭 Dual-Mode System Usage
+## 🧭 Visual Walkthrough & Quick Start
 
-Switch between modes seamlessly across GUI, TUI, and CLI interfaces:
+The application features a **Dual-Mode System**:
+1. **Schedule Editor Mode**: Load, inspect, modify, and re-export existing timetable PDFs or JSON files.
+2. **Schedule Generator Wizard Mode**: Formulate academic constraints and let the automated solver schedule all classes conflict-free.
 
-```bash
-# Launch GUI in Schedule Editor mode (default)
-uv run main.py --mode edit
+You can switch modes anytime via the **"Switch to Generator Wizard"** / **"Switch to Schedule Editor"** buttons in the top header or with the shortcut `Ctrl+M`.
 
-# Launch GUI directly in Schedule Generator Wizard mode
-uv run main.py --mode create
+---
 
-# Launch interactive Terminal UI (TUI) in Generator mode
-uv run main.py --tui --mode create
+### Mode A: Schedule Editor (Editing an Existing Timetable)
 
-# Export sample generation configuration JSON
-uv run main.py --sample-config sample_config.json
-
-# Headless generation directly from configuration JSON
-uv run main.py --create-from-config sample_config.json --output-dir ./output
+```
+[ Browse & Load PDF ] ➔ [ Select & Double-Click Row to Edit ] ➔ [ Save & Regenerate PDF ]
 ```
 
----
-
-## 🧪 Interactive Demo & Verification (GUI)
-
-The Schedule Generator Wizard header includes quick-testing utilities:
-
-1. **`🧪 Load Test Data`**:
-   - Injects a complete academic year (IV ROK) with 2 specializations (*Inżynieria Oprogramowania*, *Inżynieria Systemów Informacyjnych*), 4 groups (G1–G4), 5 distinct rooms (auditorium, classroom, computer/systems labs, seminar room), 4 professors with realistic availability constraints, 9 courses, and 2 elective subgroups (*SUB_AI*, *SUB_SEC*) sharing students from G1.
-   - All fields remain 100% editable across Steps 1 through 6 for custom scenario testing.
-2. **`⚡ Quick Test & Solve`**:
-   - Triggers Google OR-Tools CP-SAT directly from the demo data and opens the **Schedule Verification & Collision Report** dialog.
-3. **Verification Dialog Capabilities**:
-   - **Solver Status Badge**: Highlights `OPTIMAL` / `FEASIBLE` status and solve time.
-   - **Zero-Collision Audit Report**: Verifies room non-overlapping, instructor non-overlapping, student cohort and subgroup non-overlapping, forbidden window compliance, and room capacity validation.
-   - **Interactive Schedule Previews**: Filterable timetable views for Student Cohorts (G1, G2, G3, G4, SUB_AI, SUB_SEC) and Academic Staff.
-   - **One-Click Editor Handoff**: Open any generated schedule directly in the Schedule Editor for fine-tuning.
+1. **Load a Timetable**:
+   - Click **"Browse & Load File"** (`Ctrl+O`) and choose any UWM schedule PDF or JSON file.
+   - The days (Monday–Friday) will appear in organized tabs with highlighted course blocks.
+2. **Double-Click to Edit**:
+   - **Double-click any slot** in the table to open the class editor modal.
+   - Modify the subject name, instructor, room, time range, category, or note.
+   - Click **Confirm (Enter)** to save changes. Modified entries are automatically highlighted with an amber indicator tag.
+3. **Add or Delete Classes**:
+   - Use the **"+ Add Slot"** or **"Delete Slot"** (`Delete`) buttons to adjust the schedule.
+4. **Export Clean Vector PDF**:
+   - Click **"Save & Regenerate PDF"** (`Ctrl+S`). A crisp, publication-ready vector PDF is compiled into the `output/` directory.
 
 ---
 
-## 🪄 Schedule Generation Wizard (6 Steps)
+### Mode B: Schedule Generator Wizard (Automated Timetable Creation)
 
-The Generation Wizard guides you through 6 sequential steps to build a complete academic scheduling problem:
+```
+[ Load Test Data ] ➔ [ Fine-Tune Steps 1-6 ] ➔ [ Quick Test & Solve ] ➔ [ Export PDFs & JSON ]
+```
 
-1. **Step 1: Academic Structure (Studies)**
-   - Define study cycles (e.g. *stacjonarne inżynierskie I-go stopnia*), academic years (e.g. *IV ROK*), specializations, and base student groups (*Grupa 1*, *Grupa 2*).
-   - Set headcounts with automatic capacity validation (sum of group headcounts $\le$ specialization capacity).
-2. **Step 2: Facilities (Rooms)**
-   - Register lecture halls, computer labs, and classrooms with room IDs, display names, seated capacity, and allowed event types (`Lecture`, `Computer Lab`, `Auditory/Classes`, `Specialized Lab`).
-3. **Step 3: Curriculum (Courses & Modules)**
-   - Specify subject names, ECTS credits, contact hours per week, duration (e.g. 90 or 45 min), required facility type, delivery format (`Lecture`, `Lab`, `Class`, `Seminar`, `Project`), and target student groups.
-4. **Step 4: Academic Staff (Instructors)**
-   - Enter lecturers and professors, maximum daily and weekly teaching hours, course qualifications, and forbidden availability windows (e.g. Dean's hours, leaves).
-5. **Step 5: Subgroups & Conflict Rules**
-   - Create custom student subgroups (e.g. elective modules, language cohorts) and explicit disjoint rules preventing two courses or groups from colliding.
-6. **Step 6: Time Horizon & Global Rules**
-   - Configure working days (Monday–Friday), daily operating hours (e.g. 08:00–20:00), time grid slot duration (15 min), student daily workload limits, solver timeout, and soft optimization toggles.
+1. **Switch to Generator Mode**:
+   - Click **"Switch to Generator Wizard"** or launch directly with:
+     ```bash
+     uv run main.py --mode create
+     ```
+2. **One-Click Demo Test Data**:
+   - Click the **`[ 🧪 Load Test Data ]`** button in the top right.
+   - This instantly populates realistic university curriculum data:
+     - **2 Academic Years**: Year 3 (*III ROK*) and Year 4 (*IV ROK*).
+     - **2 Distinct Specializations**: Software Engineering (*Inżynieria Oprogramowania*) & Information Systems (*Inżynieria Systemów Informatycznych*).
+     - **4 Student Base Groups**: G1, G2, G3, G4 with balanced headcounts.
+     - **5 Room Facilities**: Auditory halls, classrooms, and specialized computer labs.
+     - **4 Academic Instructors**: With realistic maximum daily/weekly limits and forbidden council windows.
+     - **9 Curriculum Courses**: Complete with duration, delivery format, room requirements, and breaks.
+     - **2 Student Subgroups & Conflict Rules**: Elective modules (*SUB_AI*, *SUB_SEC*) sharing students from base groups without clashes.
+     - **2 Course Categories & Colors**: Soft pastel color fills (Soft Blue `#A9CCE3`, Soft Green `#A9DFBF`, Soft Pink `#FADBD8`).
+     - **2 Global Background Overlays**: Dean's Hours (*Godziny Dziekańskie*, Wednesday 13:00–15:00) and Rector's Hours (*Okienko rektorskie*, Friday 10:00–12:00).
+3. **Step-by-Step Customization (Double-Click Any Row to Edit)**:
+   - In all 6 wizard steps, **double-click any item** in the tables to edit it:
+     - **Step 1 (Academic Structure)**: Years, Specializations, and Groups.
+     - **Step 2 (Facilities)**: Rooms, capacities, and allowed session types.
+     - **Step 3 (Curriculum)**: Courses, duration, assigned lecturer, breaks, and visual category.
+     - **Step 4 (Academic Staff)**: Teaching hours ceiling and forbidden time windows.
+     - **Step 5 (Subgroups & Conflicts)**: Elective tracks, shared cohorts, and explicit collision rules.
+     - **Step 6 (Time Horizon & Notes)**: Working days, hours, slot duration, solver timeout, custom canvas remarks, and background overlays.
+4. **Solve & Verify**:
+   - Click **`[ ⚡ Quick Test & Solve ]`** or **"Solve Schedule"** (`Ctrl+Enter`).
+   - The **Google OR-Tools CP-SAT solver** will find an optimal, collision-free solution in a fraction of a second (< 0.2s).
+   - An interactive **Verification & Collision Audit Modal** opens, certifying zero room collisions, zero lecturer clashes, and zero student overlap.
+5. **Inspect & Export Outputs**:
+   - Inspect individual schedules for student cohorts and instructors in the preview tabs.
+   - Click **"Export All PDFs and JSONs"** to generate publication-grade vector PDFs and JSON datasets for all student groups and lecturers.
 
 ---
 
-## ⌨️ Keyboard Shortcuts Reference
+## 🎨 Feature & Visual System Reference
 
-### 1. Graphical User Interface (GUI)
+### 1. Categories & Colors
+- Assign custom visual categories to courses (e.g., *Wykłady ogólnowydziałowe*, *Laboratoria specjalistyczne*).
+- Cells are painted with their respective hex background colors before typography is rendered.
+- **Split Color Striping**: Courses spanning multiple student groups or categories render vertical split-color striped swatches.
+
+### 2. Background Overlays & Legend Integration
+- Define global university-wide time blocks (such as Dean's hours, Rector's hours, or faculty maintenance windows) in Step 6.
+- Background overlays appear across the schedule grid with custom colors, opacity, and pattern hatching (**solid**, **diagonal lines**, or **cross**).
+- **PDF Footer Legend ("KATEGORIE I KOLORY")**: Background overlays are itemized alongside regular course categories in the footer legend, displaying their matching swatch pattern and descriptive label (e.g., `[Swatch] Godziny Dziekańskie — Wolne od zajęć / Free blocks`).
+
+### 3. Structured 3-Zone Cell Layout
+Every timetable cell is rendered with high-readability vector typography divided into three distinct zones:
+- **Top Zone (Subject)**: Bold subject title with clean multi-line word wrapping and dynamic auto-fit.
+- **Middle Zone (Instructor & Type)**: Regular/italic lecturer name (e.g. *Dr inż. T. Nowak*) and class format (*Wykład*, *Lab*).
+- **Bottom Zone (Room Location)**: Horizontally centered, dark gray room tag (*Aula Główna A1*, *Lab 204*) pinned to the bottom of the cell.
+
+### 4. Smart Footnote Legend & Invariance Rule
+- If an instructor or room name cannot fit in a tight cell without sacrificing legibility, the system avoids squishing or ugly ellipsis (`...`). Instead, it cleanly abbreviates the title and places a numbered footnote reference (`[*1]`, `[*2]`) in the legend footer.
+
+### 5. In-App Tooltips & Explanatory Help Badges `(?)`
+- Unsure what a setting does? Hover your mouse over any blue **`(?)`** badge next to fields in the wizard and dialogs:
+  - *Break Before / After*: Minimum mandatory pause or travel buffer before or after a class.
+  - *Max Daily Hours*: Upper limit on daily academic contact hours to prevent teacher and student fatigue.
+  - *Subgroup Overlaps & Conflict Matrix*: Prevents elective courses that share students from being scheduled at the same time.
+  - *Background Overlay Times & Patterns*: Reserved time blocks and visual hatching styles.
+
+---
+
+## ⌨️ Complete Keyboard Shortcuts Reference
 
 | Shortcut | Scope | Action |
 |---|---|---|
-| `Ctrl+M` / Mode Buttons | Top Bar | **Toggle Mode** — Switch between Schedule Editor and Generator Wizard |
-| `Ctrl+O` | Global | **Browse & Load File** — Open file picker to select a timetable PDF |
-| `Ctrl+S` | Global | **Save & Regenerate PDF** — Generate updated `output.pdf` and `modified.json` |
-| `Delete` / `Backspace` | Table / Wizard | **Delete Slot / Step Back** — Delete selected slot or return to previous wizard step |
-| `Enter` / `Return` | Table / Wizard | **Edit Slot / Next Step** — Open slot editor or advance wizard step |
-| `Ctrl+Enter` | Wizard | **Solve Schedule** — Run the CP-SAT solver on current wizard configuration |
-| `Escape` | Global | **Cancel / Deselect** — Dismiss modals or step back in wizard |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Editor | **Cycle Weekday Tabs** — Switch between Monday–Friday |
-
-### 2. Terminal User Interface (TUI)
-
-| Key | Mode / Menu | Action |
-|---|---|---|
-| `1` | Main Menu | Launch **Schedule Editor** |
-| `2` | Main Menu | Launch **Schedule Generator Wizard** |
-| `1` .. `6` | Wizard Menu | Open and edit Steps 1 to 6 |
-| `p` | Wizard Menu | **Load Default UWM Preset** (Computer Science Year 4) |
-| `r` | Wizard Menu | **Run CP-SAT Solver** and export artifacts |
-| `v`, `a`, `e`, `d` | Editor Menu | View, Add, Edit, Delete class slots |
-| `s`, `l`, `q` | Editor Menu | Save PDF, Load PDF, Quit |
+| `Ctrl+M` | Global | **Switch Mode** — Toggle between Schedule Editor and Generator Wizard |
+| `Ctrl+O` | Global | **Open File** — Browse and load a schedule PDF or JSON file |
+| `Ctrl+S` | Editor | **Save & Recompile PDF** — Export modified schedule to vector PDF |
+| `Double-Click` | Tables | **Edit Selected Row** — Open the edit dialog for the clicked entry |
+| `Enter` / `Return` | Tables | **Edit Row** (in tables) or **Confirm** (in modal dialogs) |
+| `Delete` / `Backspace` | Tables | **Delete Row** — Remove selected item or slot |
+| `Ctrl+Enter` | Wizard | **Solve Schedule** — Trigger CP-SAT solver on current wizard data |
+| `Escape` | Modals | **Cancel / Close** — Dismiss active modal dialog without saving |
+| `Ctrl+Tab` | Editor | **Next Weekday** — Cycle to the next day tab (Monday ➔ Friday) |
+| `Ctrl+Shift+Tab` | Editor | **Previous Weekday** — Cycle to the previous day tab |
 
 ---
 
-## 📊 Automated CP-SAT Solver Mechanics
+## 💻 CLI & TUI Batch Automation (Advanced Users)
 
-The solver engine (`src/core/scheduler.py`) maps the academic timetable problem onto integer variables and interval variables in Google OR-Tools:
+For headless servers, automated scripts, or terminal enthusiasts:
 
+```bash
+# 1. Launch interactive Terminal User Interface (TUI)
+uv run main.py --tui --mode create
+
+# 2. Export default generation configuration to JSON
+uv run main.py --sample-config my_config.json
+
+# 3. Headless schedule generation from configuration JSON
+uv run main.py --create-from-config my_config.json --output-dir ./output
+
+# 4. Headless PDF-to-PDF reconstruction
+uv run main.py sample.pdf --headless --output ./output/reconstructed.pdf
 ```
-+-----------------------------------------------------------------------+
-|                        Google OR-Tools CP-SAT                         |
-+-----------------------------------------------------------------------+
-| Hard Constraints:                                                     |
-|   • Room Non-Overlap:       AddNoOverlap(room_intervals)              |
-|   • Instructor Non-Overlap: AddNoOverlap(instructor_intervals)        |
-|   • Student Non-Overlap:    AddNoOverlap(group_attending_intervals)   |
-|   • Subgroup / Cohort:      AddNoOverlap across shared parent groups  |
-|   • Forbidden Windows:      AddNoOverlap with instructor off-hours    |
-|   • Daily Student Limit:    sum(task_durations) <= max_daily_slots    |
-|   • Weekly Staff Limit:     sum(task_durations) <= max_weekly_slots   |
-|                                                                       |
-| Soft Optimization Objectives (Minimization):                         |
-|   • Student Idle Gaps:      Sum of idle gaps between classes          |
-|   • Worker Daily Spans:     Minimizing spread between first/last class|
-|   • Single-Class Days:      Penalizing days with only 1 class         |
-+-----------------------------------------------------------------------+
-```
-
-When a solution is found, the solver formats the output into `Timetable` domain models and triggers vector PDF compilation through ReportLab.
 
 ---
 
-## 📁 Artifact Storage & Output Structure
+## 📁 Output Directory Structure
 
-Every run stores isolated, timestamped outputs under `./output/` or a custom `--output-dir`:
+Generated artifacts are cleanly separated into timestamped subdirectories inside `output/`:
 
 ```text
 output/
-└── 2026-10-02_11-30-00_generated_schedule/
-    ├── execution.log             # Solver audit log with timings and diagnostics
-    ├── schedule_students.json    # Complete student timetable data
-    ├── schedule_workers.json     # Complete faculty timetable data
-    ├── student_IV_ROK_-_Specjalność_Ogólna.pdf  # Student vector timetable PDF
-    ├── staff_Dr_inż._Tomasz_Nowak.pdf           # Staff timetable PDF
-    ├── staff_Dr_hab._Jan_Kowalski_prof._UWM.pdf # Staff timetable PDF
-    ├── staff_Prof._dr_hab._inż._Adam_Wiśniewski.pdf
+└── 2026-10-06_12-00-00_generated_schedule/
+    ├── execution.log                               # Detailed solver audit trail & performance metrics
+    ├── schedule_students.json                      # Machine-readable JSON timetable for students
+    ├── schedule_workers.json                       # Machine-readable JSON timetable for instructors
+    ├── student_III_ROK_-_Inżynieria_Systemów.pdf    # Vector PDF timetable for Year 3
+    ├── student_IV_ROK_-_Inżynieria_Oprogramowania.pdf # Vector PDF timetable for Year 4
+    ├── staff_Prof._dr_hab._inż._Adam_Wiśniewski.pdf  # Individual PDF timetable for instructor
+    ├── staff_Dr_hab._Jan_Kowalski_prof._UWM.pdf
+    ├── staff_Dr_inż._Tomasz_Nowak.pdf
     └── staff_Mgr_inż._Anna_Zielińska.pdf
 ```
 
 ---
 
-## 🧪 Automated Testing Suite
+## ❓ Troubleshooting & FAQ
 
-The project includes an end-to-end testing suite organized with `pytest`:
+### Q1: `_tkinter.TclError: no display name and no $DISPLAY environment variable`
+**Cause:** You are running on a remote headless Linux server (e.g. via SSH) without an X11 forwarding or Wayland graphical session.  
+**Solutions:**
+- **Run the Terminal UI**: `uv run main.py --tui` (requires no GUI display).
+- **Run headless batch generation**: `uv run main.py --create-from-config my_config.json`
+- **Use a virtual framebuffer**:
+  ```bash
+  sudo apt-get install -y xvfb
+  xvfb-run -a uv run main.py
+  ```
 
-```text
-tests/
-├── conftest.py          # Shared fixtures (dummy academic data, reference PDFs, synthetic timetables)
-├── test_parser.py       # PDF parsing accuracy and dynamic layout extraction
-├── test_scheduler.py    # CP-SAT solver constraint enforcement & zero-collision audit
-├── test_generator.py    # PDF regeneration, vector rendering, and grid alignment
-├── test_models.py       # Data validation, serialization/deserialization, and integrity checks
-├── test_cli_scheduler.py# CLI mode routing, headless generation, and sample config export
-└── test_gui.py          # Tkinter GUI initialization, geometry, clean-slate defaults & lifecycle
-```
+---
 
-### Running Tests Locally
+### Q2: Solver reports `Status: INFEASIBLE (No valid schedule found)`
+**Cause:** The mathematical constraints are mutually impossible to satisfy simultaneously.  
+**Troubleshooting Tips:**
+1. **Facility Capacity**: Check if a course requires a room type that does not exist or has insufficient seating capacity for the assigned student group.
+2. **Staff Overload**: Check if an instructor is assigned more teaching hours than their *Max Hours / Day* or *Max Hours / Week* settings allow.
+3. **Forbidden Windows Clashing**: If an instructor is forbidden from teaching on certain days/hours, verify that their remaining available hours are sufficient for all their required courses.
+4. **Room Congestion**: If you have 6 simultaneous computer labs scheduled at 08:00 but only 2 computer lab rooms, the solver cannot schedule them. Add more rooms or loosen delivery format constraints.
+5. **Increase Timeout**: In Step 6, increase *CP-SAT Solver Timeout* from 10s to 30s for complex timetables.
 
-Run the complete test suite using `uv`:
+---
+
+### Q3: Double-clicking in an empty area of the table
+- Double-clicking blank space in any table or list view safely does nothing; edit dialogs only open when an actual row is clicked.
+
+---
+
+### Q4: Are external system fonts required?
+- No! All PDF vector graphics use ReportLab's standard built-in font metrics (`Helvetica`, `Helvetica-Bold`, `Helvetica-Oblique`), guaranteeing identical rendering on Windows, macOS, and Linux without installing external font files.
+
+---
+
+## 🧪 Running the Automated Test Suite
+
+The test suite contains 64 comprehensive tests covering the full pipeline:
 
 ```bash
-# Run all tests with pytest via uv
-uv run pytest
-
-# Run tests with verbose output and coverage
+# Run all tests via uv
 uv run pytest -v
+
+# Or via standard python in your virtual environment
+python3 -m pytest -v
 ```
 
-Or using standard python in your virtual environment:
-
-```bash
-python3 -m pytest -v tests/
-```
-
-All 35 tests verify layout extraction, CP-SAT constraint satisfaction, zero-collision compliance, infeasibility handling, vector PDF compilation, and GUI/Tkinter window lifecycle initialization in ~1.6 seconds.
+All 64 tests pass with zero warnings in ~10 seconds.
 
 ---
 

@@ -5,7 +5,7 @@ import pdfplumber
 import pytest
 
 from src.core.generator import TimetablePDFGenerator
-from src.core.models import Timetable, TimetableEntry, TimetableLayout
+from src.core.models import BackgroundOverlay, ScheduleCategory, Timetable, TimetableEntry, TimetableLayout
 
 
 def test_generator_renders_from_sample_timetable(sample_timetable: Timetable, tmp_path: Path):
@@ -275,3 +275,315 @@ def test_generator_smart_abbreviation_and_footnote_legend(tmp_path: Path):
         text = pdf.pages[0].extract_text() or ""
         assert "FOOTNOTES & ABBREVIATIONS" in text or "OBJAŚNIENIA" in text
         assert "[*1]" in text
+
+
+def test_room_invariance_rule(tmp_path: Path):
+    """Verify Room Invariance Rule: Room codes/names are NEVER abbreviated into acronyms or footnotes."""
+    oversized_room = "A.2.14 Lab Specjalistyczne 104"
+    entry = TimetableEntry(
+        subject="Operating Systems Architecture",
+        hours="08:00-09:30",
+        academic_instructor="Dr Jan Kowalski",
+        room=oversized_room,
+        type="Lecture",
+    )
+    tt = Timetable(monday=[entry], layout=TimetableLayout.create_default())
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "room_invariance.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    # Footnotes should NEVER contain room abbreviations (kind == 'room')
+    for fn in gen.page_footnotes.values():
+        assert fn.kind != "room"
+        assert oversized_room not in fn.full_text
+
+
+def test_multi_color_vertical_striping(tmp_path: Path):
+    """Verify cells with 2 and 3 colors render vertical striping cleanly without errors."""
+    entry_two_colors = TimetableEntry(
+        subject="Two Color Cross-Listed",
+        hours="08:00-09:30",
+        academic_instructor="Instructor A",
+        room="Room 101",
+        type="Lecture",
+        colors=["#3498DB", "#E74C3C"],
+    )
+    entry_three_colors = TimetableEntry(
+        subject="Three Color Split Specialization",
+        hours="10:00-11:30",
+        academic_instructor="Instructor B",
+        room="Room 102",
+        type="Lab",
+        colors=["#2ECC71", "#F1C40F", "#9B59B6"],
+    )
+    tt = Timetable(
+        monday=[entry_two_colors],
+        tuesday=[entry_three_colors],
+        layout=TimetableLayout.create_default(),
+    )
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "multi_color_stripes.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+
+def test_background_overlays_rendering(tmp_path: Path):
+    """Verify global background overlays (e.g. Godziny rektorskie) render with opacity and patterns."""
+    overlay_diag = BackgroundOverlay(
+        overlay_id="rector_hours",
+        label="Godziny rektorskie",
+        day="wednesday",
+        start_time="12:00",
+        end_time="16:00",
+        color="#F39C12",
+        opacity=0.25,
+        pattern="diagonal",
+    )
+    overlay_cross = BackgroundOverlay(
+        overlay_id="dean_hours",
+        label="Godziny dziekańskie",
+        day="friday",
+        start_time="10:00",
+        end_time="14:00",
+        color="#9B59B6",
+        opacity=0.3,
+        pattern="cross",
+    )
+    layout = TimetableLayout.create_default()
+    layout.custom_overlays = [overlay_diag, overlay_cross]
+    tt = Timetable(layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "overlay_test.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert "Godziny rektorskie" in text or "Godziny" in text
+
+
+def test_category_legend_and_canvas_notes(tmp_path: Path):
+    """Verify itemized category legend bar and custom canvas notes render in footer."""
+    cat1 = ScheduleCategory(category_id="cat_core", name="Core Courses", color="#3498DB")
+    cat2 = ScheduleCategory(category_id="cat_elective", name="Electives", color="#9B59B6")
+    layout = TimetableLayout.create_default()
+    layout.categories = [cat1, cat2]
+    layout.custom_notes = ["Important Note: All labs take place in building A."]
+    entry = TimetableEntry(
+        subject="Operating Systems",
+        hours="08:00-09:30",
+        academic_instructor="Prof. J. Kowalski",
+        room="104",
+        type="Lecture",
+        category_ids=["cat_core"],
+    )
+    tt = Timetable(monday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "legend_notes.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert "Core Courses" in text
+        assert "Important Note" in text
+
+
+def test_zero_hardcoded_footer_content(tmp_path: Path):
+    """Verify all footer content is fully parameterized with zero hardcoded strings."""
+    from src.core.models import CategoryLegendItem
+
+    # 1. Fully custom parameterized footer
+    custom_campus = "Politechnika UWM, Kampus Kortowo II, Budynek A"
+    custom_general_1 = "Zajecia laboratoryjne odbywaja sie w blokach 90 min."
+    custom_general_2 = "Obowiazuje bezwzgledna obecnosc na pierwszych zajeciach."
+    custom_dean = "Godziny rektorskie: kazda druga sroda miesiaca."
+    custom_sig = "Przygotowal: Zespol Planowania Dydaktyki"
+
+    layout = TimetableLayout.create_default()
+    layout.footer.campus_location_note = custom_campus
+    layout.footer.general_notes = [custom_general_1, custom_general_2]
+    layout.footer.dean_hours_note = custom_dean
+    layout.footer.author_signature = custom_sig
+    layout.footer.legend_categories = [
+        CategoryLegendItem(name="Specjalistyczne", color="#E67E22", description="Laboratoria zaawansowane"),
+    ]
+
+    entry = TimetableEntry(
+        subject="Architektura Systemow",
+        hours="08:00-09:30",
+        academic_instructor="Dr Inz. Kowalski",
+        room="Sala 101",
+        type="Lecture",
+    )
+    tt = Timetable(monday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "zero_hardcoded_custom.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert custom_campus in text
+        assert custom_general_1 in text
+        assert custom_general_2 in text
+        assert custom_dean in text
+        assert custom_sig in text
+        assert "Specjalistyczne" in text
+
+    # 2. Blank/None footer should render without errors and without hardcoded defaults
+    empty_layout = TimetableLayout.create_default()
+    empty_layout.footer.campus_location_note = None
+    empty_layout.footer.location_note = None
+    empty_layout.footer.general_notes = []
+    empty_layout.footer.warning_title = None
+    empty_layout.footer.warning_lines = []
+    empty_layout.footer.dean_hours_note = None
+    empty_layout.footer.author_signature = None
+    empty_layout.footer.legend_categories = []
+    empty_layout.footer.legend_items = []
+    empty_layout.deans_hour = None
+
+    tt_empty = Timetable(monday=[entry], layout=empty_layout)
+    out_empty = tmp_path / "zero_hardcoded_empty.pdf"
+    gen.generate(tt_empty, out_empty)
+    assert out_empty.exists()
+
+
+def test_draw_striped_or_solid_background_and_cell_drawer(tmp_path: Path):
+    """Verify draw_striped_or_solid_background renders solid and striped fills before text."""
+    from src.core.generator import draw_striped_or_solid_background
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "bg_test.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=(200, 200))
+
+    # Test single solid color
+    draw_striped_or_solid_background(c, 10, 10, 80, 40, ["#3498DB"])
+
+    # Test two-color striped background
+    draw_striped_or_solid_background(c, 10, 60, 80, 40, ["#3498DB", "#E74C3C"])
+
+    # Test three-color striped background
+    draw_striped_or_solid_background(c, 10, 110, 80, 40, ["#2ECC71", "#F1C40F", "#9B59B6"])
+
+    c.save()
+    assert pdf_path.exists()
+    assert pdf_path.stat().st_size > 500
+
+
+def test_structured_3zone_cell_layout_engine(tmp_path: Path):
+    """Verify structured 3-zone layout: Top (Subject), Middle (Instructor & Type), Bottom (Room)."""
+    entry = TimetableEntry(
+        subject="Programowanie Aplikacji Internetowych",
+        hours="08:00-10:00",
+        academic_instructor="Dr inż. Tomasz Nowak",
+        room="Aula Główna A1",
+        type="Lab",
+        group=None,
+        colors=["#BBEE3D"],
+    )
+    tt = Timetable(monday=[entry], layout=TimetableLayout.create_default())
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "three_zone_schedule.pdf"
+    gen.generate(tt, out_pdf)
+
+    assert out_pdf.exists()
+    assert len(gen.layout_warnings) == 0
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        # Full subject name preserved
+        assert "Programowanie" in text
+        assert "Internetowych" in text
+        # Instructor with first name initials preserved
+        assert "Nowak" in text or "T. Nowak" in text
+        # Room preserved without ellipsis
+        assert "Aula" in text
+        assert "Główna" in text or "A1" in text
+        assert "..." not in text
+
+
+def test_multi_hour_slot_scaling_bounding_box(tmp_path: Path):
+    """Verify 2-hour and 3-hour blocks utilize expanded width and height for complete readable text."""
+    entry_2h = TimetableEntry(
+        subject="Zaawansowane Bazy Danych i Hurtownie Informacji",
+        hours="10:00-12:00",
+        academic_instructor="Prof. dr hab. inż. Janusz Kowalski",
+        room="Laboratorium Komputerowe 204",
+        type="Lecture",
+        group=None,  # Full 2-group height (~66pt)
+    )
+    entry_3h = TimetableEntry(
+        subject="Inteligentne Systemy Wspomagania Decyzji Biznesowych",
+        hours="12:00-15:00",  # 3-hour block width
+        academic_instructor="Dr hab. Anna Wiśniewska",
+        room="Audytorium A",
+        type="Project",
+        group=None,  # Full 2-group height (~66pt)
+    )
+    tt = Timetable(tuesday=[entry_2h, entry_3h], layout=TimetableLayout.create_default())
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "multi_hour_scaling.pdf"
+    gen.generate(tt, out_pdf)
+
+    assert out_pdf.exists()
+    assert len(gen.layout_warnings) == 0
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert "Zaawansowane Bazy Danych" in text or "Zaawansowane" in text
+        assert "Inteligentne Systemy" in text or "Inteligentne" in text
+        assert "Kowalski" in text
+        assert "Wiśniewska" in text
+
+
+def test_category_legend_includes_background_overlays(tmp_path: Path):
+    """Verify background overlays appear in the generated PDF legend alongside course categories."""
+    cat1 = ScheduleCategory(category_id="cat_core", name="Wykłady ogólnowydziałowe", color="#A9CCE3")
+    ov1 = BackgroundOverlay(
+        overlay_id="ov_dean",
+        label="Godziny Dziekańskie",
+        day="wednesday",
+        start_time="13:00",
+        end_time="15:00",
+        color="#FADBD8",
+        pattern="diagonal",
+        description="Free blocks / No classes",
+    )
+    ov2 = BackgroundOverlay(
+        overlay_id="ov_rector",
+        label="Godziny Rektorskie",
+        day="friday",
+        start_time="10:00",
+        end_time="12:00",
+        color="#D4EFDF",
+        pattern="solid",
+        description="Brak zajęć dydaktycznych",
+    )
+    layout = TimetableLayout.create_default()
+    layout.categories = [cat1]
+    layout.background_overlays = [ov1, ov2]
+
+    entry = TimetableEntry(
+        subject="Architektura Systemów",
+        hours="08:00-09:30",
+        academic_instructor="Prof. J. Kowalski",
+        room="104",
+        type="Lecture",
+        category_ids=["cat_core"],
+    )
+    tt = Timetable(wednesday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "legend_overlays.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert "Wykłady ogólnowydziałowe" in text
+        assert "Godziny Dziekańskie" in text
+        assert "Free blocks / No classes" in text
+        assert "Godziny Rektorskie" in text
+        assert "Brak zajęć dydaktycznych" in text

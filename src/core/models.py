@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 from typing import Any, Dict, List, Literal, Optional, Tuple, Set
@@ -24,6 +25,11 @@ class TimetableEntry(BaseModel):
     type: str = Field(..., description="Class activity type (Lecture, Lab, Seminar, Project, Class, etc.)")
     group: Optional[int] = Field(default=None, description="Student subgroup number (1 or 2)")
     notes: Optional[str] = Field(default=None, description="Optional annotations or cycle details")
+    colors: List[str] = Field(default_factory=list, description="Hex color codes for cell fill (multi-color striping)")
+    category_ids: List[str] = Field(default_factory=list, description="IDs of categories assigned to this session")
+    custom_note: Optional[str] = Field(default=None, description="Slot-specific custom annotation")
+    is_modified: bool = Field(default=False, description="Whether this slot was modified/added/rescheduled")
+    session_id: Optional[str] = Field(default=None, description="Optional unique session identifier")
 
     @field_validator("hours")
     @classmethod
@@ -62,6 +68,28 @@ class TimetableEntry(BaseModel):
         """Return duration in minutes."""
         return self.end_minutes() - self.start_minutes()
 
+    @property
+    def color(self) -> Optional[str]:
+        return self.colors[0] if self.colors else None
+
+    @color.setter
+    def color(self, val: Optional[str]) -> None:
+        if val:
+            self.colors = [val]
+        else:
+            self.colors = []
+
+    @property
+    def category_id(self) -> Optional[str]:
+        return self.category_ids[0] if self.category_ids else None
+
+    @category_id.setter
+    def category_id(self, val: Optional[str]) -> None:
+        if val:
+            self.category_ids = [val]
+        else:
+            self.category_ids = []
+
     def to_schema_dict(self, include_extra: bool = True) -> Dict[str, Any]:
         """Convert to dictionary matching the target schema."""
         data: Dict[str, Any] = {
@@ -76,7 +104,57 @@ class TimetableEntry(BaseModel):
                 data["group"] = self.group
             if self.notes is not None:
                 data["notes"] = self.notes
+            if self.colors:
+                data["colors"] = self.colors
+            if self.category_ids:
+                data["category_ids"] = self.category_ids
+            if self.custom_note is not None:
+                data["custom_note"] = self.custom_note
+            if self.is_modified:
+                data["is_modified"] = self.is_modified
+            if self.session_id is not None:
+                data["session_id"] = self.session_id
         return data
+
+
+class ScheduleCategory(BaseModel):
+    """User-defined category with color and note for visual styling and dynamic legend rendering."""
+
+    category_id: str = Field(..., description="Unique category identifier (e.g. 'cat_math', 'lecture')")
+    name: str = Field(..., description="Display name for the category")
+    color: str = Field(..., description="Hex color code (e.g. '#3498DB')")
+    description: Optional[str] = Field(default=None, description="Optional description or note for the legend")
+
+
+class BackgroundOverlay(BaseModel):
+    """Custom background overlay zone (e.g. Godziny dziekańskie / rektorskie, maintenance windows)."""
+
+    overlay_id: str = Field(..., description="Unique overlay identifier")
+    label: str = Field(default="", description="Display label (e.g. 'Godziny Rektorskie')")
+    day: str = Field(..., description="Day of the week (monday..friday)")
+    start_time: str = Field(..., description="Start time HH:MM")
+    end_time: str = Field(..., description="End time HH:MM")
+    color: str = Field(default="#FF5429", description="Hex color for background overlay fill")
+    opacity: float = Field(default=0.25, ge=0.0, le=1.0, description="Fill opacity (0.0 to 1.0)")
+    pattern: str = Field(default="solid", description="Fill pattern: 'solid', 'diagonal', 'cross'")
+    target_year_id: Optional[str] = Field(default=None, description="Optional target academic year")
+    target_group_ids: List[str] = Field(default_factory=list, description="Target student group IDs (empty = all)")
+    description: Optional[str] = Field(default=None, description="Optional description of the overlay (e.g. 'Free blocks / No classes')")
+
+
+class SessionOverride(BaseModel):
+    """Exact session color/category and custom note override for an individual class slot."""
+
+    session_id: Optional[str] = Field(default=None, description="Optional target session ID")
+    day: str = Field(..., description="Day of the week (monday..friday)")
+    start_time: Optional[str] = Field(default=None, description="Start time HH:MM")
+    end_time: Optional[str] = Field(default=None, description="End time HH:MM")
+    hours: Optional[str] = Field(default=None, description="Hours interval HH:MM-HH:MM")
+    subject: Optional[str] = Field(default=None, description="Subject name filter")
+    group: Optional[int] = Field(default=None, description="Group number filter")
+    category_ids: List[str] = Field(default_factory=list, description="Assigned category IDs")
+    colors: List[str] = Field(default_factory=list, description="Custom hex colors for multi-color vertical split")
+    custom_note: Optional[str] = Field(default=None, description="Custom note for this slot")
 
 
 # =====================================================================
@@ -179,46 +257,56 @@ class LegendItem(BaseModel):
     y_offset: float = Field(..., description="Vertical offset from footer base Y")
 
 
+class CategoryLegendItem(BaseModel):
+    """Configurable legend item for categories in footer."""
+
+    name: str = Field(..., description="Category name")
+    color: str = Field(..., description="Hex color code (e.g. #3498DB)")
+    description: Optional[str] = Field(default=None, description="Detailed category explanation")
+
+
 class FooterMetadata(BaseModel):
     """Metadata for legend, annotations, and signature blocks."""
 
-    location_note: str = Field(default="Wszystkie sale na ul. Słonecznej 54.", description="Location note")
+    campus_location_note: Optional[str] = Field(default=None, description="Campus facility/address note")
+    general_notes: List[str] = Field(default_factory=list, description="General duration notes, remarks, warnings")
+    legend_categories: List[CategoryLegendItem] = Field(default_factory=list, description="Configurable category legend items")
+    dean_hours_note: Optional[str] = Field(default=None, description="Dean's hours / rector's hours note")
+    author_signature: Optional[str] = Field(default=None, description="Author signature label, e.g. 'Przygotował: ...'")
+
+    location_note: Optional[str] = Field(default=None, description="Legacy location note alias")
     y_base: float = Field(default=445.0, description="Base Y coordinate for footer section")
     abbreviations: List[Tuple[str, float]] = Field(
-        default_factory=lambda: [
-            ("Proj. gier w środ. UNITY – projektowanie gier w środowisku UNITY", 8.0),
-            ("Pr.D – pracownia dyplomowa.", 16.0),
-            ("Testowanie oprogr. – testowanie oprogramowania", 24.0),
-            ("Oznaczenia: w. – wykład, ćw. – ćwiczenia.", 36.0),
-        ],
+        default_factory=list,
         description="Course abbreviation explanations with vertical offsets",
     )
     legend_items: List[LegendItem] = Field(
-        default_factory=lambda: [
-            LegendItem(color="#EFB3F9", text="- zmiana w planie", y_offset=20.0),
-            LegendItem(color="#DEE6EF", text="- przedmioty do wyboru w ramach specjalności", y_offset=66.0),
-            LegendItem(color="#BBEE3D", text="- przedmiot do wyboru w ramach roku", y_offset=82.0),
-            LegendItem(color="#FF5429", text="- czas do dyspozycji Dziekana – na zebrania itd. .", y_offset=120.0),
-        ],
+        default_factory=list,
         description="Legend swatches and labels",
     )
-    warning_title: str = Field(default="UWAGA:", description="Warning header")
+    warning_title: Optional[str] = Field(default=None, description="Warning header")
     warning_lines: List[Tuple[str, float]] = Field(
-        default_factory=lambda: [
-            ("- PRACOWNIE DYPLOMOWE BĘDĄ PRZEZ 15 TYGODNI - DO KOŃCA SEMESTRU,", 84.0),
-            ("- POZOSTAŁE PRZEDMIOTY - PRZEZ 10 TYGODNI.", 93.0),
-        ],
+        default_factory=list,
         description="Warning bullet lines with offsets",
     )
     signatures_y_offset: float = Field(default=180.0, description="Vertical offset for signature line")
     signatures: List[Tuple[str, float]] = Field(
-        default_factory=lambda: [
-            ("Przygotował:", 30.0),
-            (".......................................", 100.0),
-            (".......................................", 230.0),
-            (".......................................", 360.0),
-        ],
+        default_factory=list,
         description="Signature placeholders with X positions",
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.campus_location_note is None and self.location_note is not None:
+            self.campus_location_note = self.location_note
+        elif self.location_note is None and self.campus_location_note is not None:
+            self.location_note = self.campus_location_note
+    custom_notes: List[str] = Field(
+        default_factory=list,
+        description="Free-form custom canvas notes displayed in footer block",
+    )
+    active_categories: List[ScheduleCategory] = Field(
+        default_factory=list,
+        description="Active user-defined categories for the dynamic legend bar",
     )
 
 
@@ -242,10 +330,52 @@ class TimetableLayout(BaseModel):
         }
     )
     deans_hour: Optional[Dict[str, Any]] = Field(
-        default_factory=lambda: {
-            "day": "tuesday",
-            "hours": "11:30-12:45",
-        }
+        default=None,
+        description="Optional dean's hour definition ({'day': 'tuesday', 'hours': '11:30-12:45'})"
+    )
+    categories: List[ScheduleCategory] = Field(
+        default_factory=list,
+        description="User-defined categories available in this layout",
+    )
+    custom_overlays: List[BackgroundOverlay] = Field(
+        default_factory=list,
+        description="Custom background overlay zones",
+    )
+
+    @property
+    def background_overlays(self) -> List[BackgroundOverlay]:
+        return self.custom_overlays
+
+    @background_overlays.setter
+    def background_overlays(self, val: List[BackgroundOverlay]) -> None:
+        self.custom_overlays = val
+    custom_notes: List[str] = Field(
+        default_factory=list,
+        description="Free-form canvas notes rendered in footer",
+    )
+    campus_location_note: Optional[str] = Field(
+        default=None,
+        description="Campus facility/address note (e.g. 'Wszystkie sale na ul. Słonecznej 54')",
+    )
+    general_notes: List[str] = Field(
+        default_factory=list,
+        description="Configurable general notes/remarks rendered in the footer",
+    )
+    legend_categories: List[CategoryLegendItem] = Field(
+        default_factory=list,
+        description="Configurable category legend items for the footer",
+    )
+    dean_hours_note: Optional[str] = Field(
+        default=None,
+        description="Custom dean/rector hours annotation note in footer",
+    )
+    author_signature: Optional[str] = Field(
+        default=None,
+        description="Author signature label, e.g. 'Przygotował: ...'",
+    )
+    session_overrides: List[SessionOverride] = Field(
+        default_factory=list,
+        description="Per-session category, color, and note overrides",
     )
 
     @classmethod
@@ -493,6 +623,22 @@ class CourseRequirement(BaseModel):
         ge=0,
         description="Optional break duration after this subject in minutes (None inherits global default)",
     )
+    category_id: Optional[str] = Field(
+        default=None,
+        description="Global primary category ID assigned to this subject",
+    )
+    category_ids: List[str] = Field(
+        default_factory=list,
+        description="Global category IDs assigned to this subject",
+    )
+    color: Optional[str] = Field(
+        default=None,
+        description="Global custom hex color assigned to this subject",
+    )
+    colors: List[str] = Field(
+        default_factory=list,
+        description="Global custom hex colors assigned to this subject (multi-color split)",
+    )
 
     @property
     def break_before_minutes(self) -> Optional[int]:
@@ -647,6 +793,50 @@ class ScheduleGenerationConfig(BaseModel):
         default=15,
         ge=0,
         description="Global default break duration between consecutive classes in minutes",
+    )
+    categories: List[ScheduleCategory] = Field(
+        default_factory=list,
+        description="User-defined custom categories",
+    )
+    background_overlays: List[BackgroundOverlay] = Field(
+        default_factory=list,
+        description="Custom background overlay zones",
+    )
+
+    @property
+    def custom_overlays(self) -> List[BackgroundOverlay]:
+        return self.background_overlays
+
+    @custom_overlays.setter
+    def custom_overlays(self, val: List[BackgroundOverlay]) -> None:
+        self.background_overlays = val
+    session_overrides: List[SessionOverride] = Field(
+        default_factory=list,
+        description="Per-session exact overrides",
+    )
+    custom_notes: List[str] = Field(
+        default_factory=list,
+        description="Free-form canvas notes rendered in footer",
+    )
+    campus_location_note: Optional[str] = Field(
+        default=None,
+        description="Campus facility/address note (e.g. 'Wszystkie sale na ul. Słonecznej 54')",
+    )
+    general_notes: List[str] = Field(
+        default_factory=list,
+        description="Configurable general notes/remarks rendered in the footer",
+    )
+    legend_categories: List[CategoryLegendItem] = Field(
+        default_factory=list,
+        description="Configurable category legend items for the footer",
+    )
+    dean_hours_note: Optional[str] = Field(
+        default=None,
+        description="Custom dean/rector hours annotation note in footer",
+    )
+    author_signature: Optional[str] = Field(
+        default=None,
+        description="Author signature label, e.g. 'Przygotował: ...'",
     )
 
     @model_validator(mode="after")
@@ -1005,7 +1195,7 @@ class ScheduleGenerationConfig(BaseModel):
     @classmethod
     def create_demo_config(cls) -> ScheduleGenerationConfig:
         """Create a comprehensive, realistic academic demo configuration for quick testing and verification."""
-        # Step 1: Studies (1-2 years, 2 specializations, balanced groups)
+        # Step 1: Studies (2 sample years, 2 specializations, 4 balanced student groups)
         g1 = BaseGroup(group_id="G1", name="Grupa 1 (IO)", student_count=16)
         g2 = BaseGroup(group_id="G2", name="Grupa 2 (IO)", student_count=16)
         g3 = BaseGroup(group_id="G3", name="Grupa 3 (ISI)", student_count=15)
@@ -1024,16 +1214,22 @@ class ScheduleGenerationConfig(BaseModel):
             groups=[g3, g4],
         )
 
+        year3 = AcademicYear(
+            year_id="rok_3",
+            name="III ROK Informatyka",
+            study_cycle="stacjonarne inżynierskie I stopnia",
+            specializations=[spec_isi],
+        )
         year4 = AcademicYear(
             year_id="rok_4",
             name="IV ROK Informatyka",
             study_cycle="stacjonarne inżynierskie I stopnia",
-            specializations=[spec_io, spec_isi],
+            specializations=[spec_io],
         )
 
         academic = AcademicStructure(
             study_cycles=["stacjonarne inżynierskie I stopnia"],
-            years=[year4],
+            years=[year3, year4],
         )
 
         # Step 2: Facilities (Mix of lecture halls, classrooms, computer labs)
@@ -1070,7 +1266,51 @@ class ScheduleGenerationConfig(BaseModel):
             ),
         ]
 
-        # Step 3: Courses (Mandatory lectures, labs, seminars, electives)
+        # Categories & Colors (Contrasting pastel fills for preview & PDF)
+        cat_ogolne = ScheduleCategory(
+            category_id="CAT_OGOLNE",
+            name="Wykłady ogólnowydziałowe",
+            color="#A9CCE3",
+            description="Ogólnowydziałowe moduły teoretyczne",
+        )
+        cat_labs = ScheduleCategory(
+            category_id="CAT_LABS",
+            name="Laboratoria specjalistyczne",
+            color="#A9DFBF",
+            description="Zaawansowane ćwiczenia laboratoryjne",
+        )
+        cat_dyplom = ScheduleCategory(
+            category_id="CAT_DYPLOM",
+            name="Seminaria i dyplomy",
+            color="#FADBD8",
+            description="Prace dyplomowe i seminaria",
+        )
+
+        # Background Overlays (Free blocks, Dean's & Rector's hours)
+        ov_deans = BackgroundOverlay(
+            overlay_id="OV_DEANS",
+            label="Godziny Dziekańskie",
+            day="wednesday",
+            start_time="13:00",
+            end_time="15:00",
+            color="#FADBD8",
+            opacity=0.35,
+            pattern="diagonal",
+            description="Wolne od zajęć / Free blocks",
+        )
+        ov_rector = BackgroundOverlay(
+            overlay_id="OV_RECTOR",
+            label="Konsultacje / Okienko rektorskie",
+            day="friday",
+            start_time="10:00",
+            end_time="12:00",
+            color="#D4EFDF",
+            opacity=0.35,
+            pattern="solid",
+            description="Okienko rektorskie / No classes",
+        )
+
+        # Step 3: Courses (Mandatory lectures, labs, seminars, electives with categories & colors)
         courses = [
             CourseRequirement(
                 course_id="C_ARCH_W",
@@ -1083,6 +1323,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 is_whole_year=True,
                 instructor_id="INST_KOWALSKI",
+                category_id="CAT_OGOLNE",
+                color="#A9CCE3",
             ),
             CourseRequirement(
                 course_id="C_TEST_W",
@@ -1095,6 +1337,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 is_whole_year=True,
                 instructor_id="INST_NOWAK",
+                category_id="CAT_OGOLNE",
+                color="#A9CCE3",
             ),
             CourseRequirement(
                 course_id="C_TEST_LAB_G1",
@@ -1107,6 +1351,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 target_group_ids=["G1"],
                 instructor_id="INST_NOWAK",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
             CourseRequirement(
                 course_id="C_TEST_LAB_G2",
@@ -1119,6 +1365,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 target_group_ids=["G2"],
                 instructor_id="INST_NOWAK",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
             CourseRequirement(
                 course_id="C_EMBED_LAB_G3",
@@ -1128,9 +1376,11 @@ class ScheduleGenerationConfig(BaseModel):
                 duration_minutes=90,
                 required_room_type="Specialized Lab",
                 delivery_format="Lab",
-                target_year_id="rok_4",
+                target_year_id="rok_3",
                 target_group_ids=["G3"],
                 instructor_id="INST_ZIELINSKA",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
             CourseRequirement(
                 course_id="C_EMBED_LAB_G4",
@@ -1140,9 +1390,11 @@ class ScheduleGenerationConfig(BaseModel):
                 duration_minutes=90,
                 required_room_type="Specialized Lab",
                 delivery_format="Lab",
-                target_year_id="rok_4",
+                target_year_id="rok_3",
                 target_group_ids=["G4"],
                 instructor_id="INST_ZIELINSKA",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
             CourseRequirement(
                 course_id="C_SEM_IO",
@@ -1155,6 +1407,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 target_group_ids=["G1", "G2"],
                 instructor_id="INST_WISNIEWSKI",
+                category_id="CAT_DYPLOM",
+                color="#FADBD8",
             ),
             CourseRequirement(
                 course_id="C_ELEC_AI",
@@ -1167,6 +1421,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 target_group_ids=["SUB_AI"],
                 instructor_id="INST_KOWALSKI",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
             CourseRequirement(
                 course_id="C_ELEC_SEC",
@@ -1179,6 +1435,8 @@ class ScheduleGenerationConfig(BaseModel):
                 target_year_id="rok_4",
                 target_group_ids=["SUB_SEC"],
                 instructor_id="INST_ZIELINSKA",
+                category_id="CAT_LABS",
+                color="#A9DFBF",
             ),
         ]
 
@@ -1255,7 +1513,7 @@ class ScheduleGenerationConfig(BaseModel):
             ),
         ]
 
-        # Step 6: Time Horizon
+        # Step 6: Time Horizon & Notes
         time_horizon = TimeHorizon(
             working_days=["monday", "tuesday", "wednesday", "thursday", "friday"],
             day_start="08:00",
@@ -1276,4 +1534,52 @@ class ScheduleGenerationConfig(BaseModel):
             subgroups=subgroups,
             conflict_rules=conflict_rules,
             time_horizon=time_horizon,
+            categories=[cat_ogolne, cat_labs, cat_dyplom],
+            background_overlays=[ov_deans, ov_rector],
+            campus_location_note="Wszystkie zajęcia odbywają się w budynkach Wydziału Matematyki i Informatyki (ul. Słoneczna 54).",
+            dean_hours_note="W środy w godz. 13:00–15:00 obowiązują godziny dziekańskie (wolne od zajęć).",
+            author_signature="Dziekan Wydziału Matematyki i Informatyki",
         )
+
+
+class ScheduleProject(BaseModel):
+    """Complete project workspace state serialized to .schedproj / JSON."""
+
+    project_name: str = Field(default="Timetable Project", description="Project title")
+    name: Optional[str] = Field(default=None, description="Project title alias")
+    created_at: str = Field(default_factory=lambda: datetime.datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.datetime.now().isoformat())
+    version: str = Field(default="1.0")
+    config: Optional[ScheduleGenerationConfig] = Field(default=None)
+    timetable: Optional[Timetable] = Field(default=None, description="Current scheduled timetable slots")
+    baseline_timetable: Optional[Timetable] = Field(default=None, description="Baseline timetable for change tracking/diff")
+    categories: List[ScheduleCategory] = Field(default_factory=list)
+    background_overlays: List[BackgroundOverlay] = Field(default_factory=list)
+    session_overrides: List[SessionOverride] = Field(default_factory=list)
+    custom_notes: List[str] = Field(default_factory=list)
+    campus_location_note: Optional[str] = Field(default=None)
+    general_notes: List[str] = Field(default_factory=list)
+    legend_categories: List[CategoryLegendItem] = Field(default_factory=list)
+    dean_hours_note: Optional[str] = Field(default=None)
+    author_signature: Optional[str] = Field(default=None)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.model_dump()
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.name and (not self.project_name or self.project_name == "Timetable Project"):
+            self.project_name = self.name
+        elif self.project_name and not self.name:
+            self.name = self.project_name
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ScheduleProject:
+        return cls(**data)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> ScheduleProject:
+        return cls.from_dict(json.loads(json_str))

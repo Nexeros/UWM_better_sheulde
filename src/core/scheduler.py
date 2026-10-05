@@ -89,6 +89,9 @@ class ScheduledSession:
         notes: Optional[str] = None,
         break_before: Optional[int] = None,
         break_after: Optional[int] = None,
+        colors: Optional[List[str]] = None,
+        category_ids: Optional[List[str]] = None,
+        custom_note: Optional[str] = None,
     ):
         self.task_id = task_id
         self.course_id = course_id
@@ -108,9 +111,34 @@ class ScheduledSession:
         self.notes = notes
         self.break_before = break_before
         self.break_after = break_after
+        self.colors: List[str] = list(colors) if colors else []
+        self.category_ids: List[str] = list(category_ids) if category_ids else []
+        self.custom_note: Optional[str] = custom_note
+
+    @property
+    def color(self) -> Optional[str]:
+        return self.colors[0] if self.colors else None
+
+    @color.setter
+    def color(self, val: Optional[str]) -> None:
+        if val:
+            self.colors = [val]
+        else:
+            self.colors = []
+
+    @property
+    def category_id(self) -> Optional[str]:
+        return self.category_ids[0] if self.category_ids else None
+
+    @category_id.setter
+    def category_id(self, val: Optional[str]) -> None:
+        if val:
+            self.category_ids = [val]
+        else:
+            self.category_ids = []
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "task_id": self.task_id,
             "course_id": self.course_id,
             "subject": self.subject,
@@ -130,6 +158,16 @@ class ScheduledSession:
             "break_before": self.break_before,
             "break_after": self.break_after,
         }
+        if self.colors:
+            data["colors"] = self.colors
+        if self.category_ids:
+            data["category_ids"] = self.category_ids
+        if self.custom_note is not None:
+            data["custom_note"] = self.custom_note
+        return data
+
+
+ScheduledSlot = ScheduledSession
 
 
 class ScheduleResult:
@@ -832,6 +870,40 @@ class AcademicScheduler:
                     assigned_inst = inst
                     break
 
+            # Resolve colors and categories for this session
+            sess_colors: List[str] = []
+            if task.course.colors:
+                sess_colors = list(task.course.colors)
+            elif task.course.color:
+                sess_colors = [task.course.color]
+            elif task.course.category_id:
+                for cat in self.config.categories:
+                    if cat.category_id == task.course.category_id and cat.color:
+                        sess_colors = [cat.color]
+                        break
+            elif task.course.category_ids:
+                for cid in task.course.category_ids:
+                    for cat in self.config.categories:
+                        if cat.category_id == cid and cat.color and cat.color not in sess_colors:
+                            sess_colors.append(cat.color)
+
+            # Check session overrides
+            sess_custom_note = task.notes
+            if hasattr(self.config, "session_overrides") and self.config.session_overrides:
+                for ov in self.config.session_overrides:
+                    if ov.day.lower() == day_name.lower():
+                        s_match = not ov.subject or ov.subject.lower() in task.course.subject_name.lower()
+                        if s_match:
+                            if ov.colors:
+                                sess_colors = list(ov.colors)
+                            if ov.custom_note:
+                                sess_custom_note = ov.custom_note
+                            break
+
+            sess_cat_ids = list(task.course.category_ids)
+            if task.course.category_id and task.course.category_id not in sess_cat_ids:
+                sess_cat_ids.append(task.course.category_id)
+
             session = ScheduledSession(
                 task_id=task.task_id,
                 course_id=task.course.course_id,
@@ -851,6 +923,9 @@ class AcademicScheduler:
                 notes=task.notes,
                 break_before=task.break_before,
                 break_after=task.break_after,
+                colors=sess_colors,
+                category_ids=sess_cat_ids,
+                custom_note=sess_custom_note,
             )
             scheduled_sessions.append(session)
 
@@ -943,6 +1018,22 @@ class AcademicScheduler:
                 tt = Timetable()
                 layout = TimetableLayout.create_default()
                 layout.banner.program_text = f"INFORMATYKA ({y.study_cycle}, {y.name} - {s.name})"
+                if self.config.campus_location_note:
+                    layout.footer.campus_location_note = self.config.campus_location_note
+                if self.config.dean_hours_note:
+                    layout.footer.dean_hours_note = self.config.dean_hours_note
+                if self.config.author_signature:
+                    layout.footer.author_signature = self.config.author_signature
+                if self.config.general_notes:
+                    layout.footer.general_notes = list(self.config.general_notes)
+                if self.config.legend_categories:
+                    layout.footer.legend_categories = list(self.config.legend_categories)
+                if self.config.custom_notes:
+                    layout.custom_notes = list(self.config.custom_notes)
+                if self.config.categories:
+                    layout.categories = list(self.config.categories)
+                if self.config.background_overlays:
+                    layout.custom_overlays = list(self.config.background_overlays)
                 tt.layout = layout
 
                 # Filter sessions relevant to this spec's groups
@@ -970,6 +1061,9 @@ class AcademicScheduler:
                             type=sess.delivery_format,
                             group=group_num,
                             notes=sess.notes,
+                            colors=list(sess.colors) if sess.colors else [],
+                            category_ids=list(sess.category_ids) if sess.category_ids else [],
+                            custom_note=sess.custom_note,
                         )
                         if sess.day in VALID_DAYS:
                             tt.add_entry(sess.day, entry)
@@ -992,6 +1086,22 @@ class AcademicScheduler:
             tt = Timetable()
             layout = TimetableLayout.create_default()
             layout.banner.program_text = f"Plan zajęć: {inst.name}"
+            if self.config.campus_location_note:
+                layout.footer.campus_location_note = self.config.campus_location_note
+            if self.config.dean_hours_note:
+                layout.footer.dean_hours_note = self.config.dean_hours_note
+            if self.config.author_signature:
+                layout.footer.author_signature = self.config.author_signature
+            if self.config.general_notes:
+                layout.footer.general_notes = list(self.config.general_notes)
+            if self.config.legend_categories:
+                layout.footer.legend_categories = list(self.config.legend_categories)
+            if self.config.custom_notes:
+                layout.custom_notes = list(self.config.custom_notes)
+            if self.config.categories:
+                layout.categories = list(self.config.categories)
+            if self.config.background_overlays:
+                layout.custom_overlays = list(self.config.background_overlays)
             tt.layout = layout
 
             for sess in inst_sessions:
@@ -1007,6 +1117,9 @@ class AcademicScheduler:
                     type=sess.delivery_format,
                     group=None,  # Spans entire row width for instructor card
                     notes=combined_notes,
+                    colors=list(sess.colors) if sess.colors else [],
+                    category_ids=list(sess.category_ids) if sess.category_ids else [],
+                    custom_note=sess.custom_note,
                 )
                 if sess.day in VALID_DAYS:
                     tt.add_entry(sess.day, entry)
