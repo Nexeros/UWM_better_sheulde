@@ -587,3 +587,138 @@ def test_category_legend_includes_background_overlays(tmp_path: Path):
         assert "Free blocks / No classes" in text
         assert "Godziny Rektorskie" in text
         assert "Brak zajęć dydaktycznych" in text
+
+def test_footer_multi_column_non_overlapping(sample_timetable: Timetable, tmp_path: Path):
+    """Verify footer elements are grouped into non-overlapping side-by-side columns with strict bounds."""
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "test_footer_cols.pdf"
+    gen.generate(sample_timetable, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        page = pdf.pages[0]
+        words = [w for w in page.extract_words() if w['top'] > 430]
+        words_c1 = [w for w in words if w['x0'] < 150.0 and w['top'] < 570.0]
+        words_c2 = [w for w in words if 150.0 <= w['x0'] < 315.0 and w['top'] < 570.0]
+        words_c3 = [w for w in words if w['x0'] >= 315.0 and w['top'] < 570.0]
+
+        # Column 1 should contain campus location and UWAGA notices
+        c1_text = " ".join(w['text'] for w in words_c1)
+        assert "Wszystkie sale" in c1_text or "Słonecznej" in c1_text
+        assert "UWAGA:" in c1_text
+        assert "PRACOWNIE DYPLOMOWE" in c1_text
+
+        # Column 2 should contain Categories and swatches
+        c2_text = " ".join(w['text'] for w in words_c2)
+        assert "KATEGORIE I KOLORY:" in c2_text
+        assert "zmiana w planie" in c2_text
+        assert "specjalności" in c2_text
+
+        # Column 3 should contain Abbreviations and Footnotes
+        c3_text = " ".join(w['text'] for w in words_c3)
+        assert "OBJAŚNIENIA" in c3_text
+        assert "Pr.D" in c3_text
+        assert "UNITY" in c3_text
+
+        # Verify no horizontal collisions: max X of C1 < min X of C2; max X of C2 < min X of C3
+        assert max(w['x1'] for w in words_c1) < min(w['x0'] for w in words_c2)
+        assert max(w['x1'] for w in words_c2) < min(w['x0'] for w in words_c3)
+
+
+def test_footer_dedup_abbreviation_expansions_not_readded_as_notes(tmp_path: Path):
+    """Verify abbreviation expansions already in abbreviations/footnotes are never duplicated as bullet notes."""
+    layout = TimetableLayout.create_default()
+    layout.footer.abbreviations = [
+        ("Pr.D – pracownia dyplomowa.", 10.0),
+        ("Testowanie oprogr. – testowanie oprogramowania", 20.0),
+    ]
+    # Add duplicate abbreviation expansions to custom_notes and general_notes
+    layout.custom_notes = [
+        "Pr.D – pracownia dyplomowa.",
+        "Testowanie oprogr. – testowanie oprogramowania",
+        "Zajęcia w blokach 90-minutowych",  # Genuine general note
+    ]
+    layout.general_notes = [
+        "Pr.D — pracownia dyplomowa",  # Slight variation
+    ]
+
+    entry = TimetableEntry(
+        subject="Architektura",
+        hours="08:00-09:30",
+        academic_instructor="Dr Kowalski",
+        room="Aula 1",
+        type="Lecture",
+    )
+    tt = Timetable(monday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "test_dedup_notes.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        # The genuine note must be present
+        assert "Zajęcia w blokach 90-minutowych" in text
+        # Count occurrences of pracownia dyplomowa: exactly 1 in abbreviations column
+        assert text.count("pracownia dyplomowa") == 1
+        assert text.count("testowanie oprogramowania") == 1
+
+
+def test_footer_zero_injection_of_hardcoded_headers_and_signatures(tmp_path: Path):
+    """Verify no 'Przygotował: ...' or 'DODATKOWE UWAGI' is injected if unconfigured."""
+    layout = TimetableLayout.create_default()
+    layout.custom_notes = ["Zajecia rozpoczynaja sie punktualnie."]
+    layout.footer.author_signature = None
+    layout.footer.signatures = []
+
+    entry = TimetableEntry(
+        subject="Matematyka",
+        hours="08:00-09:30",
+        academic_instructor="Prof. Nowak",
+        room="Aula 2",
+        type="Lecture",
+    )
+    tt = Timetable(monday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "test_zero_hardcoded.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        text = pdf.pages[0].extract_text() or ""
+        assert "DODATKOWE UWAGI" not in text
+        assert "Przygotował:" not in text
+        assert "Zajecia rozpoczynaja sie punktualnie." in text
+
+
+def test_footer_boundary_check_and_spacing_scaling(tmp_path: Path):
+    """Verify extensive notes trigger dynamic downscaling without breaching 20pt bottom page margin."""
+    layout = TimetableLayout.create_default()
+    layout.custom_notes = [
+        f"Bardzo dluga uwaga porzadkowa numer {i} dotyczaca zasad zaliczania przedmiotu w semestrze zimowym"
+        for i in range(1, 15)
+    ]
+    layout.footer.campus_location_note = "Wydzial Matematyki i Informatyki UWM"
+    layout.footer.author_signature = "Autor: Samorzad Studencki"
+
+    entry = TimetableEntry(
+        subject="Fizyka",
+        hours="08:00-09:30",
+        academic_instructor="Dr Wiśniewski",
+        room="Aula F",
+        type="Lecture",
+    )
+    tt = Timetable(monday=[entry], layout=layout)
+    gen = TimetablePDFGenerator()
+    out_pdf = tmp_path / "test_footer_scaling.pdf"
+    gen.generate(tt, out_pdf)
+    assert out_pdf.exists()
+
+    with pdfplumber.open(out_pdf) as pdf:
+        page = pdf.pages[0]
+        words = [w for w in page.extract_words() if w['top'] > 430]
+        assert len(words) > 0
+        # All words must stay strictly above the 20 pt bottom page margin (bottom < page_height - 20)
+        max_bottom = max(w['bottom'] for w in words)
+        assert max_bottom <= page.height - 20.0, f"Footer breached bottom margin: {max_bottom} > {page.height - 20.0}"
+

@@ -492,7 +492,11 @@ class TimetableParser:
                 y_off = round(y_k - footer_y_base, 2)
                 warning_lines.append((line_text, y_off))
 
-        general_notes = [txt for txt, _ in warning_lines]
+        # Single source of truth / Deduplication:
+        # Warning lines are categorized under warning_lines.
+        # Do not duplicate warning_lines into general_notes.
+        # Discard raw unparsed footer string blobs once categorized.
+        general_notes: List[str] = []
 
         # 5. Signatures
         sig_words = [w for w in words if w["top"] >= 600.0]
@@ -500,8 +504,10 @@ class TimetableParser:
         signatures: List[Tuple[str, float]] = []
         if sig_words:
             sig_words_sorted = sorted(sig_words, key=lambda w: w["x0"])
-            if any("przygotow" in w["text"].lower() for w in sig_words):
-                author_sig = "Przygotował:"
+            for w in sig_words_sorted:
+                if "przygotow" in w["text"].lower():
+                    author_sig = w["text"]
+                    break
             sig_by_x: List[Tuple[str, float]] = []
             curr_phrase: List[str] = []
             curr_min_x: float = 0.0

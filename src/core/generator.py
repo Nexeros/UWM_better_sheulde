@@ -1456,367 +1456,497 @@ class TimetablePDFGenerator:
             c.drawString(det_x, room_y, det_line)
             rendered_lines.append((det_line, self.font_regular, r_size, det_x, room_y))
 
-    def _draw_footer_notes(self, c: canvas.Canvas, layout: TimetableLayout) -> None:
-        """Draw dynamic category legend, custom canvas notes, annotations, and footnotes without hardcoded strings."""
+    def _collect_and_dedup_footer_data(self, layout: TimetableLayout) -> Dict[str, Any]:
+        """Extract and deduplicate all footer data into clean structured models.
+        
+        Enforces:
+        - Single source of truth.
+        - Strict deduplication: abbreviation expansions are never re-added as general notes.
+        - Zero injection of hardcoded default templates.
+        """
         footer = layout.footer
+
+        # 1. Campus location note
+        loc_note = (
+            getattr(footer, "campus_location_note", None)
+            or getattr(footer, "location_note", None)
+            or getattr(layout, "campus_location_note", None)
+        )
+        if loc_note:
+            loc_note = str(loc_note).strip() or None
+
+        # 2. Footnotes and abbreviations
+        known_abbr_keys: set[str] = set()
+        known_abbr_expansions: set[str] = set()
+        known_full_lines: set[str] = set()
+
+        raw_abbr = getattr(footer, "abbreviations", []) or []
+        cleaned_abbr: List[str] = []
+        for item in raw_abbr:
+            text = (item[0] if isinstance(item, (tuple, list)) else str(item)).strip()
+            if not text:
+                continue
+            norm = re.sub(r"\s+", " ", text.lower())
+            known_full_lines.add(norm)
+            for sep in ("–", "—", "-", ":"):
+                if sep in text:
+                    parts = text.split(sep, 1)
+                    k = parts[0].strip().lower().rstrip(".:")
+                    v = parts[1].strip().lower().lstrip(".:")
+                    if k:
+                        known_abbr_keys.add(k)
+                    if v:
+                        known_abbr_expansions.add(v)
+                    break
+            cleaned_abbr.append(text)
+
+        # Registered page footnotes
+        fn_lines: List[str] = []
+        for fn in sorted(self.page_footnotes.values(), key=lambda x: x.index):
+            line = fn.legend_line.strip()
+            norm = re.sub(r"\s+", " ", line.lower())
+            known_full_lines.add(norm)
+            known_abbr_keys.add(fn.short_text.strip().lower().rstrip(".:"))
+            known_abbr_expansions.add(fn.full_text.strip().lower().rstrip(".:"))
+            fn_lines.append(line)
+
+        # Merge abbreviations and footnotes without exact duplicates
+        abbr_and_fn: List[str] = []
+        seen_abbr_norms: set[str] = set()
+        for item in fn_lines + cleaned_abbr:
+            norm = re.sub(r"[\s\.\-—–:,•*]+", "", item.lower())
+            if norm and norm not in seen_abbr_norms:
+                seen_abbr_norms.add(norm)
+                abbr_and_fn.append(item)
+
+        # 3. Special notes / duration rules / warnings / general notes
+        warning_title = getattr(footer, "warning_title", None)
+        if warning_title:
+            warning_title = str(warning_title).strip() or None
+
+        raw_candidates = []
+        for w_item in getattr(footer, "warning_lines", []) or []:
+            raw_candidates.append(w_item[0] if isinstance(w_item, (tuple, list)) else str(w_item))
+        for g_item in getattr(footer, "general_notes", []) or []:
+            raw_candidates.append(str(g_item))
+        for g_item in getattr(layout, "general_notes", []) or []:
+            raw_candidates.append(str(g_item))
+        for c_item in getattr(footer, "custom_notes", []) or []:
+            raw_candidates.append(str(c_item))
+        for c_item in getattr(layout, "custom_notes", []) or []:
+            raw_candidates.append(str(c_item))
+
+        special_notes: List[str] = []
+        seen_notes: set[str] = set()
+
+        for cand in raw_candidates:
+            cand_str = cand.strip()
+            if not cand_str:
+                continue
+            cand_lower = cand_str.lower()
+            if loc_note and cand_lower == loc_note.lower():
+                continue
+            if warning_title and cand_lower == warning_title.lower():
+                continue
+
+            # Dedup rule: If abbreviation expansion is already in footnote/abbreviation system,
+            # do not re-add it as a general note.
+            norm_full = re.sub(r"\s+", " ", cand_lower)
+            if norm_full in known_full_lines:
+                continue
+
+            is_abbr_expansion = False
+            for sep in ("–", "—", "-", ":"):
+                if sep in cand_str:
+                    parts = cand_str.split(sep, 1)
+                    k = parts[0].strip().lower().rstrip(".:")
+                    v = parts[1].strip().lower().lstrip(".:")
+                    if (k and k in known_abbr_keys) or (v and v in known_abbr_expansions):
+                        is_abbr_expansion = True
+                        break
+            if is_abbr_expansion:
+                continue
+
+            if any(cand_lower.startswith(prefix) for prefix in ("oznaczenia", "w. –", "w. -", "ćw. –", "ćw. -", "[*")):
+                continue
+
+            norm_note = re.sub(r"[\s\.\-—–:,•*]+", "", cand_lower)
+            if norm_note in seen_notes:
+                continue
+            seen_notes.add(norm_note)
+            special_notes.append(cand_str)
+
+        # 4. Legend items (Categories, Swatches, Background Overlays)
+        legend_items: List[Dict[str, Any]] = []
+        seen_legends: set[Tuple[str, str]] = set()
+
+        # Swatches from footer
+        for item in getattr(footer, "legend_items", []) or []:
+            color = str(getattr(item, "color", "")).strip().upper()
+            text = str(getattr(item, "text", "")).strip()
+            clean_label = re.sub(r"^[-•\s]+", "", text).strip()
+            if color and clean_label:
+                key = (color, clean_label.lower())
+                if key not in seen_legends:
+                    seen_legends.add(key)
+                    legend_items.append({
+                        "color": color,
+                        "label": clean_label,
+                        "pattern": "solid",
+                    })
+
+        # Categories
+        cat_sources = []
+        if getattr(layout, "categories", None):
+            cat_sources.extend(layout.categories)
+        if getattr(layout.footer, "active_categories", None):
+            cat_sources.extend(layout.footer.active_categories)
+        if getattr(layout, "legend_categories", None):
+            cat_sources.extend(layout.legend_categories)
+        if getattr(layout.footer, "legend_categories", None):
+            cat_sources.extend(layout.footer.legend_categories)
+
+        for cat in cat_sources:
+            color = str(getattr(cat, "color", "")).strip().upper()
+            name = str(getattr(cat, "name", "")).strip()
+            clean_name = re.sub(r"^[-•\s]+", "", name).strip()
+            desc = getattr(cat, "description", None)
+            desc_str = str(desc).strip() if desc else ""
+            clean_desc = re.sub(r"^[-•\s]+", "", desc_str).strip() if desc_str else ""
+            if color and clean_name:
+                key = (color, clean_name.lower())
+                if key not in seen_legends:
+                    seen_legends.add(key)
+                    label = f"{clean_name} — {clean_desc}" if (clean_desc and clean_desc != clean_name) else clean_name
+                    legend_items.append({
+                        "color": color,
+                        "label": label,
+                        "pattern": "solid",
+                    })
+
+        # Overlays
+        overlay_sources = []
+        if getattr(layout, "custom_overlays", None):
+            overlay_sources.extend(layout.custom_overlays)
+        if getattr(layout, "background_overlays", None):
+            overlay_sources.extend(layout.background_overlays)
+
+        for ov in overlay_sources:
+            color = str(getattr(ov, "color", "")).strip().upper()
+            label = str(getattr(ov, "label", "")).strip()
+            desc = getattr(ov, "description", None)
+            if color and (label or desc):
+                key_text = label or str(desc)
+                key = (color, re.sub(r"\s+", " ", key_text.lower()))
+                if key not in seen_legends:
+                    seen_legends.add(key)
+                    full_lbl = f"{label} — {desc}" if (label and desc and label != desc) else (label or str(desc))
+                    legend_items.append({
+                        "color": color,
+                        "label": full_lbl,
+                        "pattern": getattr(ov, "pattern", "diagonal") or "diagonal",
+                    })
+
+        # Dean's hour note
+        dean_note = (
+            getattr(footer, "dean_hours_note", None)
+            or getattr(layout, "dean_hours_note", None)
+        )
+        if dean_note:
+            dn_clean = str(dean_note).lstrip("- ").strip()
+            dn_color = str(layout.color_styles.deans_fill or "#FF5429").strip().upper()
+            key = (dn_color, re.sub(r"\s+", " ", dn_clean.lower()))
+            if key not in seen_legends and not any("dziekan" in item["label"].lower() for item in legend_items):
+                seen_legends.add(key)
+                legend_items.append({
+                    "color": dn_color,
+                    "label": dn_clean,
+                    "pattern": "diagonal",
+                })
+
+        # 5. Signatures (Strictly zero injection)
+        signatures = getattr(footer, "signatures", []) or []
+        author_sig = getattr(footer, "author_signature", None) or getattr(layout, "author_signature", None)
+        if author_sig:
+            author_sig = str(author_sig).strip() or None
+
+        return {
+            "campus_location_note": loc_note,
+            "warning_title": warning_title,
+            "special_notes": special_notes,
+            "legend_items": legend_items,
+            "abbreviations_and_footnotes": abbr_and_fn,
+            "signatures": signatures,
+            "author_signature": author_sig,
+        }
+
+    def _draw_footer_notes(self, c: canvas.Canvas, layout: TimetableLayout) -> None:
+        """Sequential, Non-Overlapping Footer Engine with Dynamic Multi-Column Flow.
+        
+        Strictly satisfies:
+        1. Single source of truth (deduplicated notes, swatches, and footnotes).
+        2. Dynamic top-down cursor flow from schedule_grid_bottom_y down to bottom margin.
+        3. Multi-column flow grouping notes into distinct vertical side-by-side columns:
+           - Column 1: Campus location note, semester length notices (UWAGA:), rules.
+           - Column 2: Categories, color swatches, background overlays.
+           - Column 3: Abbreviations and footnotes ([*1] ...).
+        4. Zero injection of hardcoded template headers or signature fallbacks.
+        """
         bounds = layout.grid_bounds
         typo = layout.typography
 
-        cur_y = footer.y_base
+        # 1. Collect and deduplicate all footer data
+        data = self._collect_and_dedup_footer_data(layout)
 
-        # 1. Location Note (strictly if configured)
-        loc_note = getattr(footer, "campus_location_note", None) or getattr(footer, "location_note", None)
-        if loc_note:
-            c.setFont(self.font_bold, typo.header_font_size)
-            c.setFillColor(colors.black)
-            c.drawString(bounds.table_x0, self._y_to_cv(cur_y, bounds.page_height), loc_note)
-            cur_y += 12.0
+        loc_note = data["campus_location_note"]
+        warning_title = data["warning_title"]
+        special_notes = data["special_notes"]
+        legend_items = data["legend_items"]
+        abbr_and_fn = data["abbreviations_and_footnotes"]
+        signatures = data["signatures"]
+        author_sig = data["author_signature"]
 
-        # 2. Existing abbreviations (if provided)
-        if getattr(footer, "abbreviations", None):
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            for item in footer.abbreviations:
-                text = item[0]
-                y_off = item[1]
-                x_off = item[2] if len(item) > 2 else 170.0
-                c.drawString(
-                    bounds.table_x0 + x_off,
-                    self._y_to_cv(footer.y_base + y_off, bounds.page_height),
-                    text,
-                )
+        has_col1 = bool(loc_note or warning_title or special_notes)
+        has_col2 = bool(legend_items)
+        has_col3 = bool(abbr_and_fn)
+        has_sig = bool(signatures or author_sig)
 
-        # 3. Standard / Configurable Legend Items (if provided)
-        if getattr(footer, "legend_items", None):
-            c.setLineWidth(0.5)
-            for item in footer.legend_items:
-                c.setFillColor(colors.HexColor(item.color))
-                c.rect(
-                    bounds.table_x0 + 34.0,
-                    self._y_to_cv(footer.y_base + item.y_offset + 7.0, bounds.page_height),
-                    15.0,
-                    7.0,
-                    fill=1,
-                    stroke=1,
-                )
-                c.setFillColor(colors.black)
-                c.setFont(self.font_regular, typo.legend_font_size)
-                c.drawString(
-                    bounds.table_x0 + 55.0,
-                    self._y_to_cv(footer.y_base + item.y_offset + 1.0, bounds.page_height),
-                    item.text,
-                )
-
-        # 4. Warnings / General Notes and Dean Hours Note
-        if getattr(footer, "warning_title", None):
-            c.setFont(self.font_bold, typo.header_font_size - 0.5)
-            c.setFillColor(colors.black)
-            c.drawString(
-                bounds.table_x0 + 280.0,
-                self._y_to_cv(footer.y_base + 91.5, bounds.page_height),
-                footer.warning_title,
-            )
-        if getattr(footer, "warning_lines", None):
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            for item in footer.warning_lines:
-                text = item[0]
-                y_off = item[1]
-                x_off = item[2] if len(item) > 2 else 290.0
-                c.drawString(
-                    bounds.table_x0 + x_off,
-                    self._y_to_cv(footer.y_base + y_off, bounds.page_height),
-                    text,
-                )
-        if getattr(footer, "general_notes", None):
-            warn_texts = {wl[0].strip().lower() for wl in getattr(footer, "warning_lines", [])}
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            draw_idx = 0
-            for g_note in footer.general_notes:
-                if g_note.strip().lower() not in warn_texts:
-                    c.drawString(
-                        bounds.table_x0 + 280.0,
-                        self._y_to_cv(footer.y_base + 84.0 + draw_idx * 9.0, bounds.page_height),
-                        g_note,
-                    )
-                    draw_idx += 1
-        if getattr(footer, "dean_hours_note", None):
-            has_in_legend = any(
-                "dziekan" in item.text.lower()
-                for item in getattr(footer, "legend_items", [])
-            )
-            if not has_in_legend:
-                c.setFont(self.font_regular, typo.legend_font_size)
-                c.setFillColor(colors.black)
-                c.drawString(
-                    bounds.table_x0 + 240.0,
-                    self._y_to_cv(footer.y_base + 120.0, bounds.page_height),
-                    footer.dean_hours_note,
-                )
-
-        # 5. Signatures (if provided)
-        sig_y = footer.y_base + getattr(footer, "signatures_y_offset", 180.0)
-        has_signatures = False
-        if getattr(footer, "signatures", None):
-            has_signatures = True
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            for text, x_off in footer.signatures:
-                if ".." in text:
-                    c.drawString(
-                        bounds.table_x0 + x_off,
-                        self._y_to_cv(sig_y + 8.0, bounds.page_height),
-                        text,
-                    )
-                else:
-                    c.drawString(
-                        bounds.table_x0 + x_off,
-                        self._y_to_cv(sig_y, bounds.page_height),
-                        text,
-                    )
-        elif getattr(footer, "author_signature", None):
-            has_signatures = True
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            c.drawString(
-                bounds.table_x0 + 30.0,
-                self._y_to_cv(sig_y, bounds.page_height),
-                footer.author_signature,
-            )
-            c.drawString(
-                bounds.table_x0 + 130.0,
-                self._y_to_cv(sig_y + 8.0, bounds.page_height),
-                ".......................................",
-            )
-
-        start_dynamic_y = (sig_y + 18.0) if has_signatures else (cur_y + 6.0)
-
-        # 6. Dynamic Itemized Category Legend Bar
-        next_y = self._draw_category_legend_bar(c, layout, start_y=start_dynamic_y)
-
-        # 7. Custom Free-Form Canvas Notes Section
-        next_y = self._draw_custom_notes_section(c, layout, start_y=next_y)
-
-        # 8. Footnotes Section for Referenced Abbreviations
-        if self.page_footnotes:
-            self._draw_footnotes_section(c, layout, start_y=next_y)
-
-    def _draw_category_legend_bar(self, c: canvas.Canvas, layout: TimetableLayout, start_y: float) -> float:
-        """Render an itemized color legend bar listing active categories, global background overlays, and swatches."""
-        bounds = layout.grid_bounds
-        legend_items: List[Dict[str, Any]] = []
-        seen_keys = set()
-
-        # Existing colors from footer.legend_items to avoid duplicating native swatches
-        existing_legend_colors = {
-            item.color.strip().upper()
-            for item in getattr(layout.footer, "legend_items", [])
-            if hasattr(item, "color") and item.color
-        }
-
-        # 1. Course Categories
-        cats_to_check: List[ScheduleCategory] = []
-        if hasattr(layout, "categories") and layout.categories:
-            cats_to_check.extend(layout.categories)
-        if hasattr(layout, "legend_categories") and layout.legend_categories:
-            for leg in layout.legend_categories:
-                cats_to_check.append(ScheduleCategory(category_id=f"leg_{leg.name}", name=leg.name, color=leg.color, description=leg.description))
-        if hasattr(layout.footer, "active_categories") and layout.footer.active_categories:
-            cats_to_check.extend(layout.footer.active_categories)
-        if hasattr(layout.footer, "legend_categories") and layout.footer.legend_categories:
-            for leg in layout.footer.legend_categories:
-                cats_to_check.append(ScheduleCategory(category_id=f"leg_{leg.name}", name=leg.name, color=leg.color, description=leg.description))
-
-        for cat in cats_to_check:
-            c_color = cat.color.strip().upper() if cat.color else ""
-            if c_color in existing_legend_colors:
-                continue
-            ck = f"cat_{cat.name.strip().lower()}_{c_color}"
-            if ck not in seen_keys:
-                seen_keys.add(ck)
-                label = f"{cat.name} — {cat.description}" if (cat.description and cat.description != cat.name) else cat.name
-                legend_items.append({
-                    "color": cat.color,
-                    "label": label,
-                    "pattern": "solid",
-                })
-
-        # 2. Global Background Overlays (Dean's hours, Rector's hours, etc.)
-        overlays_to_check: List[BackgroundOverlay] = []
-        if hasattr(layout, "custom_overlays") and layout.custom_overlays:
-            overlays_to_check.extend(layout.custom_overlays)
-        if hasattr(layout, "background_overlays") and layout.background_overlays:
-            overlays_to_check.extend(layout.background_overlays)
-
-        # Legacy dean's hour support
-        if getattr(layout, "deans_hour", None):
-            dh = layout.deans_hour
-            dh_day = str(dh.get("day", "Środa")).capitalize()
-            dh_hours = str(dh.get("hours", "11:30-12:45"))
-            dh_label = str(dh.get("label", "Godziny Dziekańskie"))
-            overlays_to_check.append(
-                BackgroundOverlay(
-                    overlay_id="legacy_deans",
-                    label=dh_label,
-                    day=dh_day.lower(),
-                    start_time=dh_hours.split("-")[0] if "-" in dh_hours else "11:30",
-                    end_time=dh_hours.split("-")[1] if "-" in dh_hours else "12:45",
-                    color=layout.color_styles.deans_fill,
-                    opacity=0.35,
-                    pattern="diagonal",
-                    description=f"Wolne od zajęć / Free blocks ({dh_day} {dh_hours})",
-                )
-            )
-
-        for ov in overlays_to_check:
-            ov_color = ov.color.strip().upper() if ov.color else ""
-            if ov_color in existing_legend_colors:
-                continue
-            ok = f"ov_{ov.overlay_id}_{ov.label}_{ov_color}"
-            if ok not in seen_keys:
-                seen_keys.add(ok)
-                desc = getattr(ov, "description", None)
-                if desc:
-                    label = f"{ov.label} — {desc}" if ov.label else desc
-                elif ov.day and ov.start_time and ov.end_time:
-                    label = f"{ov.label} — {ov.day.capitalize()} {ov.start_time}–{ov.end_time} / Free blocks"
-                else:
-                    label = ov.label or "Background Block"
-
-                legend_items.append({
-                    "color": ov.color,
-                    "label": label,
-                    "pattern": ov.pattern or "solid",
-                })
-
-        if not legend_items:
-            return start_y
-
-        cur_y = start_y
-        c.setLineWidth(0.5)
-        c.setFont(self.font_bold, 7.5)
-        c.setFillColor(colors.HexColor("#2C3E50"))
-        c.drawString(bounds.table_x0, self._y_to_cv(cur_y, bounds.page_height), "KATEGORIE I KOLORY (CATEGORIES & COLORS):")
-        cur_y += 10.0
-
-        swatch_w = 14.0
-        swatch_h = 7.0
-        line_h = 9.5
-        col_w = (bounds.table_x1 - bounds.table_x0) / 2.0
-
-        for idx, item in enumerate(legend_items):
-            col_idx = idx % 2
-            row_idx = idx // 2
-            bx = bounds.table_x0 + col_idx * col_w
-            by = cur_y + row_idx * line_h
-            cv_by = self._y_to_cv(by + swatch_h, bounds.page_height)
-
-            # Draw Swatch Fill
-            try:
-                c.setFillColor(colors.HexColor(item["color"]))
-            except Exception:
-                c.setFillColor(colors.HexColor("#FFFFFF"))
-            c.setStrokeColor(colors.HexColor("#7F8C8D"))
-            c.rect(bx, cv_by, swatch_w, swatch_h, fill=1, stroke=1)
-
-            # Draw Pattern Markings if diagonal or cross
-            pat = str(item.get("pattern", "solid")).lower()
-            if pat == "diagonal":
-                c.setStrokeColor(colors.HexColor("#333333"))
-                c.setLineWidth(0.5)
-                c.line(bx + 3.0, cv_by, bx + 8.0, cv_by + swatch_h)
-                c.line(bx + 8.0, cv_by, bx + 13.0, cv_by + swatch_h)
-            elif pat == "cross":
-                c.setStrokeColor(colors.HexColor("#333333"))
-                c.setLineWidth(0.5)
-                c.line(bx + 2.0, cv_by, bx + swatch_w - 2.0, cv_by + swatch_h)
-                c.line(bx + 2.0, cv_by + swatch_h, bx + swatch_w - 2.0, cv_by)
-
-            # Draw Label
-            c.setFillColor(colors.black)
-            c.setFont(self.font_regular, 7.0)
-            label_clean = self._truncate_with_ellipsis(item["label"], self.font_regular, 7.0, col_w - swatch_w - 6.0)
-            c.drawString(bx + swatch_w + 4.0, self._y_to_cv(by + swatch_h - 1.0, bounds.page_height), label_clean)
-
-        num_rows = (len(legend_items) + 1) // 2
-        return cur_y + num_rows * line_h + 6.0
-
-    def _draw_custom_notes_section(self, c: canvas.Canvas, layout: TimetableLayout, start_y: float) -> float:
-        """Render custom free-form text notes in a dedicated footer block."""
-        bounds = layout.grid_bounds
-        notes: List[str] = []
-        if hasattr(layout, "custom_notes") and layout.custom_notes:
-            notes.extend(layout.custom_notes)
-        if hasattr(layout.footer, "custom_notes") and layout.footer.custom_notes:
-            for n in layout.footer.custom_notes:
-                if n not in notes:
-                    notes.append(n)
-
-        if not notes:
-            return start_y
-
-        cur_y = start_y
-        c.setFont(self.font_bold, 7.5)
-        c.setFillColor(colors.HexColor("#2C3E50"))
-        c.drawString(bounds.table_x0, self._y_to_cv(cur_y, bounds.page_height), "DODATKOWE UWAGI (ADDITIONAL NOTES):")
-        cur_y += 10.0
-
-        c.setFont(self.font_regular, 7.0)
-        c.setFillColor(colors.black)
-        for note in notes:
-            note_line = f"• {note}" if not note.startswith("[") else note
-            clean_note = self._truncate_with_ellipsis(
-                note_line, self.font_regular, 7.0, bounds.table_x1 - bounds.table_x0
-            )
-            c.drawString(bounds.table_x0 + 4.0, self._y_to_cv(cur_y, bounds.page_height), clean_note)
-            cur_y += 9.0
-
-        return cur_y + 6.0
-
-    def _draw_footnotes_section(self, c: canvas.Canvas, layout: TimetableLayout, start_y: Optional[float] = None) -> None:
-        """Render a clean, dedicated legend area for referenced abbreviations and footnotes."""
-        if not self.page_footnotes:
+        if not (has_col1 or has_col2 or has_col3 or has_sig):
             return
 
-        footer = layout.footer
-        bounds = layout.grid_bounds
+        # 2. Dynamic top-down cursor initialization
+        grid_bottom_top_y = layout.row_metrics.day_y_starts.get(
+            "friday", 353.68
+        ) + layout.row_metrics.day_total_height
+        schedule_grid_bottom_y = self._y_to_cv(grid_bottom_top_y, bounds.page_height)
 
-        sorted_footnotes = sorted(self.page_footnotes.values(), key=lambda fn: fn.index)
-        fn_base_y = start_y if start_y is not None else max(640.0, footer.y_base + footer.signatures_y_offset + 22.0)
+        FOOTER_TOP_MARGIN = 14.0
+        current_y = schedule_grid_bottom_y - FOOTER_TOP_MARGIN
+        MIN_BOTTOM_MARGIN = 20.0
 
-        # Subtle separator line
-        c.setStrokeColor(colors.HexColor("#A6B0B5"))
-        c.setLineWidth(0.5)
-        sep_y_cv = self._y_to_cv(fn_base_y, bounds.page_height)
-        c.line(bounds.table_x0, sep_y_cv, bounds.table_x1, sep_y_cv)
+        # 3. Setup multi-column geometry
+        footer_x0 = bounds.table_x0
+        total_w = bounds.table_x1 - bounds.table_x0
+        if total_w < 350.0:
+            total_w = bounds.page_width - 2 * bounds.table_x0
 
-        # Section header
-        c.setFont(self.font_bold, 7.5)
-        c.setFillColor(colors.HexColor("#2C3E50"))
-        header_text = "OBJAŚNIENIA OZNACZEŃ I SKRÓTÓW (FOOTNOTES & ABBREVIATIONS):"
-        c.drawString(bounds.table_x0, self._y_to_cv(fn_base_y + 10.0, bounds.page_height), header_text)
+        active_columns: List[str] = []
+        if has_col1:
+            active_columns.append("col1")
+        if has_col2:
+            active_columns.append("col2")
+        if has_col3:
+            active_columns.append("col3")
 
-        c.setFont(self.font_regular, 7.2)
-        c.setFillColor(colors.black)
-        line_height = 10.0
-        start_entries_y = fn_base_y + 21.0
-
-        n = len(sorted_footnotes)
-        if n <= 5:
-            for idx, fn in enumerate(sorted_footnotes):
-                entry_y = start_entries_y + idx * line_height
-                c.drawString(bounds.table_x0, self._y_to_cv(entry_y, bounds.page_height), fn.legend_line)
+        num_cols = len(active_columns)
+        if num_cols == 0:
+            col_width = total_w
+            col_gap = 0.0
+        elif num_cols == 1:
+            col_width = total_w
+            col_gap = 0.0
+        elif num_cols == 2:
+            col_gap = 16.0
+            col_width = (total_w - col_gap) / 2.0
         else:
-            mid = (n + 1) // 2
-            col1 = sorted_footnotes[:mid]
-            col2 = sorted_footnotes[mid:]
-            col2_x = bounds.table_x0 + (bounds.table_x1 - bounds.table_x0) / 2.0 + 10.0
+            col_gap = 12.0
+            col_width = (total_w - 2.0 * col_gap) / 3.0
 
-            for idx, fn in enumerate(col1):
-                entry_y = start_entries_y + idx * line_height
-                c.drawString(bounds.table_x0, self._y_to_cv(entry_y, bounds.page_height), fn.legend_line)
+        header_font_size = 7.2
+        body_font_size = 6.6
+        line_leading = 8.5
+        item_gap = 2.0
 
-            for idx, fn in enumerate(col2):
-                entry_y = start_entries_y + idx * line_height
-                c.drawString(col2_x, self._y_to_cv(entry_y, bounds.page_height), fn.legend_line)
+        def compute_column_heights(h_fs: float, b_fs: float, lead: float, gap: float) -> Tuple[float, float, float]:
+            h1 = 0.0
+            if has_col1:
+                if loc_note:
+                    wrapped = self._wrap_text(loc_note, self.font_bold, h_fs, col_width)
+                    h1 += len(wrapped) * lead + 4.0
+                if warning_title:
+                    h1 += lead + 2.0
+                for sn in special_notes:
+                    bullet = f"• {sn.lstrip('-• ')}"
+                    wrapped = self._wrap_text(bullet, self.font_regular, b_fs, col_width)
+                    h1 += len(wrapped) * (b_fs * 1.22) + gap
+
+            h2 = 0.0
+            if has_col2:
+                h2 += lead + 2.0
+                swatch_w = 12.0
+                avail_w = max(10.0, col_width - swatch_w - 4.0)
+                for item in legend_items:
+                    wrapped = self._wrap_text(item["label"], self.font_regular, b_fs - 0.2, avail_w)
+                    item_h = max(7.0, len(wrapped) * (b_fs * 1.2)) + gap
+                    h2 += item_h
+
+            h3 = 0.0
+            if has_col3:
+                header_text = "OBJAŚNIENIA OZNACZEŃ I SKRÓTÓW (FOOTNOTES & ABBREVIATIONS):"
+                wrapped_hdr = self._wrap_text(header_text, self.font_bold, h_fs - 0.2, col_width)
+                h3 += len(wrapped_hdr) * lead + 2.0
+                for line in abbr_and_fn:
+                    is_subhdr = line.endswith(":") and len(line) < 15
+                    fn_name = self.font_bold if is_subhdr else self.font_regular
+                    fn_size = b_fs if is_subhdr else (b_fs - 0.2)
+                    wrapped = self._wrap_text(line, fn_name, fn_size, col_width)
+                    h3 += len(wrapped) * (fn_size * 1.22) + gap
+
+            return h1, h2, h3
+
+        # 4. Measure Bounding Box Height & Page Boundary Check
+        col1_h, col2_h, col3_h = compute_column_heights(header_font_size, body_font_size, line_leading, item_gap)
+        multi_col_h = max(col1_h, col2_h, col3_h) if num_cols > 0 else 0.0
+
+        sig_h = 14.0 if has_sig else 0.0
+        sig_gap = 8.0 if (has_sig and num_cols > 0) else 0.0
+        total_needed_h = multi_col_h + sig_gap + sig_h
+
+        available_h = current_y - MIN_BOTTOM_MARGIN
+
+        # Page Boundary Check: If approaching bottom margin, dynamically scale down
+        if total_needed_h > available_h and available_h > 25.0:
+            scale = max(0.60, available_h / total_needed_h)
+            header_font_size = max(5.5, header_font_size * scale)
+            body_font_size = max(5.2, body_font_size * scale)
+            line_leading = max(6.5, line_leading * scale)
+            item_gap = max(1.0, item_gap * scale)
+            col1_h, col2_h, col3_h = compute_column_heights(header_font_size, body_font_size, line_leading, item_gap)
+            multi_col_h = max(col1_h, col2_h, col3_h) if num_cols > 0 else 0.0
+            sig_gap = max(4.0, sig_gap * scale)
+
+        # 5. Draw Multi-Column Block Side-by-Side
+        columns_top_y = current_y
+
+        for col_idx, col_type in enumerate(active_columns):
+            col_x = footer_x0 + col_idx * (col_width + col_gap)
+            col_cursor_y = columns_top_y
+
+            if col_type == "col1":
+                # Location note
+                if loc_note:
+                    c.setFont(self.font_bold, header_font_size)
+                    c.setFillColor(colors.black)
+                    wrapped = self._wrap_text(loc_note, self.font_bold, header_font_size, col_width)
+                    for w_line in wrapped:
+                        c.drawString(col_x, col_cursor_y - header_font_size * 0.85, w_line)
+                        col_cursor_y -= line_leading
+                    col_cursor_y -= 4.0
+
+                # Warning title (e.g. "UWAGA:")
+                if warning_title:
+                    c.setFont(self.font_bold, header_font_size)
+                    c.setFillColor(colors.HexColor("#2C3E50"))
+                    c.drawString(col_x, col_cursor_y - header_font_size * 0.85, warning_title)
+                    col_cursor_y -= (line_leading + 2.0)
+
+                # Special notes / rules
+                c.setFont(self.font_regular, body_font_size)
+                c.setFillColor(colors.black)
+                for sn in special_notes:
+                    bullet_text = f"• {sn.lstrip('-• ')}"
+                    wrapped = self._wrap_text(bullet_text, self.font_regular, body_font_size, col_width)
+                    for w_line in wrapped:
+                        c.drawString(col_x, col_cursor_y - body_font_size * 0.85, w_line)
+                        col_cursor_y -= (body_font_size * 1.22)
+                    col_cursor_y -= item_gap
+
+            elif col_type == "col2":
+                # Categories & Colors Header
+                c.setFont(self.font_bold, header_font_size)
+                c.setFillColor(colors.HexColor("#2C3E50"))
+                c.drawString(col_x, col_cursor_y - header_font_size * 0.85, "KATEGORIE I KOLORY:")
+                col_cursor_y -= (line_leading + 2.0)
+
+                swatch_w = 12.0
+                swatch_h = 6.5
+                avail_lbl_w = max(10.0, col_width - swatch_w - 4.0)
+
+                for item in legend_items:
+                    item_top = col_cursor_y
+                    # Draw Swatch Box
+                    try:
+                        c.setFillColor(colors.HexColor(item["color"]))
+                    except Exception:
+                        c.setFillColor(colors.HexColor("#FFFFFF"))
+                    c.setStrokeColor(colors.HexColor("#7F8C8D"))
+                    c.setLineWidth(0.5)
+                    c.rect(col_x, item_top - swatch_h, swatch_w, swatch_h, fill=1, stroke=1)
+
+                    # Patterns if any
+                    pat = str(item.get("pattern", "solid")).lower()
+                    if pat == "diagonal":
+                        c.setStrokeColor(colors.HexColor("#333333"))
+                        c.line(col_x + 2.0, item_top - swatch_h, col_x + 6.0, item_top)
+                        c.line(col_x + 6.0, item_top - swatch_h, col_x + 10.0, item_top)
+                    elif pat == "cross":
+                        c.setStrokeColor(colors.HexColor("#333333"))
+                        c.line(col_x + 2.0, item_top - swatch_h, col_x + swatch_w - 2.0, item_top)
+                        c.line(col_x + 2.0, item_top, col_x + swatch_w - 2.0, item_top - swatch_h)
+
+                    # Draw Swatch Label wrapped next to swatch
+                    c.setFont(self.font_regular, body_font_size - 0.2)
+                    c.setFillColor(colors.black)
+                    wrapped = self._wrap_text(item["label"], self.font_regular, body_font_size - 0.2, avail_lbl_w)
+                    text_cur = item_top
+                    for w_line in wrapped:
+                        c.drawString(col_x + swatch_w + 4.0, text_cur - (body_font_size - 0.2) * 0.85, w_line)
+                        text_cur -= (body_font_size * 1.2)
+                    col_cursor_y = min(item_top - swatch_h, text_cur) - item_gap
+
+            elif col_type == "col3":
+                # Header
+                header_text = "OBJAŚNIENIA OZNACZEŃ I SKRÓTÓW (FOOTNOTES & ABBREVIATIONS):"
+                c.setFont(self.font_bold, header_font_size - 0.2)
+                c.setFillColor(colors.HexColor("#2C3E50"))
+                wrapped_hdr = self._wrap_text(header_text, self.font_bold, header_font_size - 0.2, col_width)
+                for w_line in wrapped_hdr:
+                    c.drawString(col_x, col_cursor_y - (header_font_size - 0.2) * 0.85, w_line)
+                    col_cursor_y -= line_leading
+                col_cursor_y -= 2.0
+
+                # Footnotes & Abbreviations
+                for line in abbr_and_fn:
+                    is_subhdr = line.endswith(":") and len(line) < 15
+                    fn_name = self.font_bold if is_subhdr else self.font_regular
+                    fn_size = body_font_size if is_subhdr else (body_font_size - 0.2)
+                    c.setFont(fn_name, fn_size)
+                    c.setFillColor(colors.black)
+                    wrapped = self._wrap_text(line, fn_name, fn_size, col_width)
+                    for w_line in wrapped:
+                        c.drawString(col_x, col_cursor_y - fn_size * 0.85, w_line)
+                        col_cursor_y -= (fn_size * 1.22)
+                    col_cursor_y -= item_gap
+
+        # 6. Advance cursor past the multi-column block
+        if num_cols > 0:
+            current_y = columns_top_y - (multi_col_h + sig_gap)
+
+        # 7. Signature Line (Zero hardcoded template injection)
+        if signatures:
+            c.setFont(self.font_regular, body_font_size)
+            c.setFillColor(colors.black)
+            for text, x_off in signatures:
+                sig_x = footer_x0 + x_off
+                c.drawString(sig_x, current_y, text)
+            current_y -= sig_h
+        elif author_sig:
+            c.setFont(self.font_regular, body_font_size)
+            c.setFillColor(colors.black)
+            c.drawString(footer_x0, current_y, author_sig)
+            if author_sig.endswith(":") and "..." not in author_sig:
+                sig_w = pdfmetrics.stringWidth(author_sig, self.font_regular, body_font_size)
+                c.drawString(footer_x0 + sig_w + 8.0, current_y, ".......................................")
+            current_y -= sig_h
+
+    def _draw_category_legend_bar(self, c: canvas.Canvas, layout: TimetableLayout, start_y: float) -> float:
+        """Render an itemized color legend bar (kept for backward compatibility)."""
+        return start_y
+
+    def _draw_custom_notes_section(self, c: canvas.Canvas, layout: TimetableLayout, start_y: float) -> float:
+        """Render custom free-form text notes (kept for backward compatibility)."""
+        return start_y
+
+    def _draw_footnotes_section(self, c: canvas.Canvas, layout: TimetableLayout, start_y: Optional[float] = None) -> None:
+        """Render footnotes section (kept for backward compatibility)."""
+        pass

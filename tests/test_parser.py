@@ -83,3 +83,26 @@ def test_parser_nonexistent_file_raises_error(tmp_path: Path):
     parser = TimetableParser(non_existent)
     with pytest.raises(FileNotFoundError):
         parser.parse()
+
+def test_parser_footer_dedup_and_single_source_of_truth(sample_pdf_path: Path):
+    """Verify parser implements single source of truth for footer data and does not duplicate notes."""
+    parser = TimetableParser(sample_pdf_path)
+    tt = parser.parse()
+    footer = tt.layout.footer
+
+    # 1. Warning lines are categorized under warning_lines with warning_title
+    assert footer.warning_title == "UWAGA:"
+    assert len(footer.warning_lines) >= 3
+
+    # 2. General notes does not duplicate warning_lines
+    assert len(footer.general_notes) == 0
+
+    # 3. Abbreviations are extracted as structured items
+    assert len(footer.abbreviations) >= 3
+    abbr_texts = [item[0] for item in footer.abbreviations]
+    assert any("Pr.D" in t for t in abbr_texts)
+
+    # 4. Swatches and categories are structured
+    assert len(footer.legend_items) >= 4
+    assert len(footer.active_categories) >= 4
+
