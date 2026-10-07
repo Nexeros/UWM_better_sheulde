@@ -23,6 +23,7 @@ from src.core.models import (
     BannerMetadata,
     FooterMetadata,
     LegendItem,
+    ScheduleCategory,
 )
 
 logger = logging.getLogger("uwm_timetable_parser")
@@ -40,6 +41,31 @@ ROOM_REGEX = re.compile(r"\b([A-Z]\s*\d+/\d+[A-Z]?|[A-Z]\d+/\d+[A-Z]?|C0/1|D\s*0
 INSTRUCTOR_REGEX = re.compile(
     r"\b([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:\s+[A-ZĄĆĘŁŃÓŚŹŻ]\.|\s+Krzysztof|\s+[A-ZĄĆĘŁŃÓŚŹŻ]\.\.)|Froń\s*A\.\.?|Jastrzębski\s*P\.|Ropiak\s*K\.|Michalczyk\s*A\.|Kwiatkowski\s*M\.|Słowiński\s*D\.)\b"
 )
+
+
+def _rgb_to_hex(c: Any) -> Optional[str]:
+    """Convert pdfplumber color (RGB float tuple, grayscale float/int, or CMYK) to hex string."""
+    if c is None:
+        return None
+    if isinstance(c, (list, tuple)):
+        if len(c) == 3:
+            r = min(255, max(0, int(round(c[0] * 255))))
+            g = min(255, max(0, int(round(c[1] * 255))))
+            b = min(255, max(0, int(round(c[2] * 255))))
+            return f"#{r:02X}{g:02X}{b:02X}"
+        if len(c) == 4:
+            c_val, m_val, y_val, k_val = c
+            r = min(255, max(0, int(round(255 * (1 - c_val) * (1 - k_val)))))
+            g = min(255, max(0, int(round(255 * (1 - m_val) * (1 - k_val)))))
+            b = min(255, max(0, int(round(255 * (1 - y_val) * (1 - k_val)))))
+            return f"#{r:02X}{g:02X}{b:02X}"
+        if len(c) == 1:
+            val = min(255, max(0, int(round(c[0] * 255))))
+            return f"#{val:02X}{val:02X}{val:02X}"
+    if isinstance(c, (int, float)):
+        val = min(255, max(0, int(round(c * 255)))) if isinstance(c, float) else min(255, max(0, c))
+        return f"#{val:02X}{val:02X}{val:02X}"
+    return None
 
 
 class TimetableParser:
@@ -171,7 +197,7 @@ class TimetableParser:
                 day_positions[k] = v
 
         # Row metrics from Monday block
-        y_mon = day_positions["monday"]
+        y_mon = day_positions["monday"] if "monday" in day_positions else day_positions["monday"]
         h_lines_mon = sorted(
             list(
                 set(
@@ -298,19 +324,9 @@ class TimetableParser:
             height=b_h,
         )
 
-        footer_y_base = day_positions["friday"] + day_total_h + 16.0
-        parsed_loc_words = [
-            w for w in words
-            if w["top"] >= day_positions["friday"] + day_total_h
-            and abs(w["top"] - footer_y_base) < 20.0
-            and w["x0"] < b_x0 + 260.0
-        ]
-        parsed_loc_note = " ".join(w["text"] for w in sorted(parsed_loc_words, key=lambda w: w["x0"])).strip() or None
-
-        footer = FooterMetadata(
-            campus_location_note=parsed_loc_note,
-            location_note=parsed_loc_note,
-            y_base=footer_y_base,
+        footer_y_start = day_positions["friday"] + day_total_h
+        footer, categories = self._extract_footer_and_legend(
+            page, words, footer_y_start, table_x0, table_x1
         )
 
         return TimetableLayout(
@@ -323,7 +339,265 @@ class TimetableParser:
             footer=footer,
             day_labels={"monday": "PON", "tuesday": "WT", "wednesday": "ŚR", "thursday": "CZW", "friday": "PT"},
             deans_hour=deans_hour,
+            categories=categories,
+            campus_location_note=footer.campus_location_note,
+            general_notes=footer.general_notes,
+            dean_hours_note=footer.dean_hours_note,
+            author_signature=footer.author_signature,
         )
+
+    def _extract_footer_and_legend(
+        self,
+        page: Any,
+        words: List[Dict[str, Any]],
+        footer_y_start: float,
+        table_x0: float,
+        table_x1: float,
+    ) -> Tuple[FooterMetadata, List[ScheduleCategory]]:
+        """Dynamically extract location notes, color swatches, categories, abbreviations, and warnings."""
+        footer_y_base = footer_y_start + 16.0
+
+        # 1. Location Note: usually in upper-left of footer
+        loc_words = [
+            w
+            for w in words
+            if footer_y_start <= w["top"] < footer_y_start + 18.0
+            and w["x0"] < table_x0 + 170.0
+        ]
+        loc_words.sort(key=lambda w: w["x0"])
+        campus_loc_note = " ".join(w["text"] for w in loc_words).strip() or None
+
+        # 2. Legend Swatches & Categories
+        footer_rects = [
+            r
+            for r in page.rects
+            if r["top"] >= footer_y_start and r.get("non_stroking_color") is not None
+        ]
+        swatch_rects = [
+            r
+            for r in footer_rects
+            if r["x0"] < table_x0 + 60.0 and r["width"] < 100.0
+        ]
+        swatch_rects.sort(key=lambda r: (round(r["top"], 1), r["x0"]))
+
+        merged_swatches: List[Dict[str, Any]] = []
+        for r in swatch_rects:
+            hex_col = _rgb_to_hex(r.get("non_stroking_color"))
+            if not hex_col:
+                continue
+            if (
+                merged_swatches
+                and merged_swatches[-1]["color"] == hex_col
+                and abs(merged_swatches[-1]["bottom"] - r["top"]) < 2.0
+            ):
+                merged_swatches[-1]["bottom"] = r["bottom"]
+                merged_swatches[-1]["height"] += r["height"]
+            else:
+                merged_swatches.append({
+                    "x0": r["x0"],
+                    "top": r["top"],
+                    "x1": r["x1"],
+                    "bottom": r["bottom"],
+                    "color": hex_col,
+                    "height": r["height"],
+                })
+
+        legend_items: List[LegendItem] = []
+        categories: List[ScheduleCategory] = []
+        dean_hours_note: Optional[str] = None
+
+        for s in merged_swatches:
+            max_x = table_x0 + 165.0 if s["top"] < 505.0 else table_x0 + 270.0
+            matched_words = [
+                w
+                for w in words
+                if s["x1"] - 5.0 <= w["x0"] < max_x
+                and (s["top"] - 1.5) <= w["top"] < (s["bottom"] - 0.5)
+            ]
+            matched_words.sort(key=lambda w: (round(w["top"], 1), w["x0"]))
+            label = " ".join(w["text"] for w in matched_words).strip()
+            if not label:
+                continue
+
+            y_offset = round(s["top"] - footer_y_base, 2)
+            legend_items.append(LegendItem(color=s["color"], text=label, y_offset=y_offset))
+
+            clean_name = label.lstrip("- ").strip()
+            cat_id = f"cat_{s['color'].lstrip('#').lower()}"
+            cat_obj = ScheduleCategory(
+                category_id=cat_id,
+                name=clean_name or label,
+                color=s["color"],
+                description=clean_name or label,
+            )
+            if not any(c.color.upper() == s["color"].upper() for c in categories):
+                categories.append(cat_obj)
+
+            if "dziekan" in label.lower():
+                dean_hours_note = label
+
+        # 3. Abbreviations
+        abbr_words = [
+            w
+            for w in words
+            if w["x0"] >= table_x0 + 165.0 and (footer_y_start + 8.0) <= w["top"] < 508.0
+        ]
+        lines_by_y: Dict[float, List[Dict[str, Any]]] = {}
+        for w in abbr_words:
+            y_key = round(w["top"], 1)
+            matched_k = None
+            for k in lines_by_y:
+                if abs(k - y_key) < 2.5:
+                    matched_k = k
+                    break
+            if matched_k is None:
+                matched_k = y_key
+                lines_by_y[matched_k] = []
+            lines_by_y[matched_k].append(w)
+
+        abbr_lines: List[Tuple[str, float]] = []
+        for y_k in sorted(lines_by_y):
+            w_list = sorted(lines_by_y[y_k], key=lambda x: x["x0"])
+            line_text = " ".join(w["text"] for w in w_list).strip()
+            y_off = round(y_k - footer_y_base, 2)
+            abbr_lines.append((line_text, y_off))
+
+        # 4. Warnings / general notes
+        warn_words = [
+            w
+            for w in words
+            if w["x0"] >= table_x0 + 265.0 and 510.0 <= w["top"] < 600.0
+        ]
+        warn_lines_by_y: Dict[float, List[Dict[str, Any]]] = {}
+        for w in warn_words:
+            y_key = round(w["top"], 1)
+            matched_k = None
+            for k in warn_lines_by_y:
+                if abs(k - y_key) < 2.5:
+                    matched_k = k
+                    break
+            if matched_k is None:
+                matched_k = y_key
+                warn_lines_by_y[matched_k] = []
+            warn_lines_by_y[matched_k].append(w)
+
+        warning_title: Optional[str] = None
+        warning_lines: List[Tuple[str, float]] = []
+        for y_k in sorted(warn_lines_by_y):
+            w_list = sorted(warn_lines_by_y[y_k], key=lambda x: x["x0"])
+            line_text = " ".join(w["text"] for w in w_list).strip()
+            if "uwaga" in line_text.lower() and not warning_title:
+                warning_title = line_text
+            else:
+                y_off = round(y_k - footer_y_base, 2)
+                warning_lines.append((line_text, y_off))
+
+        general_notes = [txt for txt, _ in warning_lines]
+
+        # 5. Signatures
+        sig_words = [w for w in words if w["top"] >= 600.0]
+        author_sig: Optional[str] = None
+        signatures: List[Tuple[str, float]] = []
+        if sig_words:
+            sig_words_sorted = sorted(sig_words, key=lambda w: w["x0"])
+            if any("przygotow" in w["text"].lower() for w in sig_words):
+                author_sig = "Przygotował:"
+            sig_by_x: List[Tuple[str, float]] = []
+            curr_phrase: List[str] = []
+            curr_min_x: float = 0.0
+            for w in sig_words_sorted:
+                if not curr_phrase:
+                    curr_phrase.append(w["text"])
+                    curr_min_x = w["x0"]
+                elif abs(w["x0"] - (curr_min_x + len(" ".join(curr_phrase)) * 4.0)) < 30.0:
+                    curr_phrase.append(w["text"])
+                else:
+                    sig_by_x.append((" ".join(curr_phrase), round(curr_min_x - table_x0, 2)))
+                    curr_phrase = [w["text"]]
+                    curr_min_x = w["x0"]
+            if curr_phrase:
+                sig_by_x.append((" ".join(curr_phrase), round(curr_min_x - table_x0, 2)))
+            signatures = sig_by_x
+
+        footer = FooterMetadata(
+            campus_location_note=campus_loc_note,
+            location_note=campus_loc_note,
+            y_base=footer_y_base,
+            abbreviations=abbr_lines,
+            legend_items=legend_items,
+            warning_title=warning_title,
+            warning_lines=warning_lines,
+            general_notes=general_notes,
+            dean_hours_note=dean_hours_note,
+            author_signature=author_sig,
+            signatures=signatures,
+            signatures_y_offset=round(628.05 - footer_y_base, 2) if sig_words else 180.0,
+            active_categories=categories,
+        )
+        return footer, categories
+
+    def _enrich_entries_with_colors_and_categories(
+        self,
+        entries: List[TimetableEntry],
+        day_key: str,
+        layout: TimetableLayout,
+        page: Any,
+    ) -> List[TimetableEntry]:
+        """Detect underlying vector rect fill colors and assign category IDs to timetable entries."""
+        cols = layout.column_metrics
+        rows = layout.row_metrics
+        y_day = rows.day_y_starts.get(day_key, 0.0)
+        header_h = rows.header_row_height
+        group_h = rows.rows_per_group * rows.baseline_row_height
+
+        for entry in entries:
+            try:
+                sp = entry.hours.split("-")[0].split(":")
+                ep = entry.hours.split("-")[1].split(":")
+                s_min = (int(sp[0]) - cols.start_hour) * 60 + int(sp[1])
+                e_min = (int(ep[0]) - cols.start_hour) * 60 + int(ep[1])
+            except Exception:
+                continue
+
+            cx0 = cols.time_start_x + (s_min / 15.0) * cols.col_15m_width
+            cx1 = cols.time_start_x + (e_min / 15.0) * cols.col_15m_width
+
+            if entry.group == 1:
+                cy0 = y_day + header_h
+                cy1 = cy0 + group_h
+            elif entry.group == 2:
+                cy0 = y_day + header_h + group_h
+                cy1 = cy0 + group_h
+            else:
+                cy0 = y_day + header_h
+                cy1 = cy0 + 2 * group_h
+
+            matched_rects = []
+            for r in page.rects:
+                if r.get("non_stroking_color") is None:
+                    continue
+                c_hex = _rgb_to_hex(r.get("non_stroking_color"))
+                if not c_hex or c_hex == "#FF5429":
+                    continue
+                rx0, rx1 = r["x0"], r["x1"]
+                ry0, ry1 = r["top"], r["bottom"]
+                if not (rx1 <= cx0 + 1.0 or rx0 >= cx1 - 1.0 or ry1 <= cy0 + 1.0 or ry0 >= cy1 - 1.0):
+                    matched_rects.append((r["x0"], c_hex))
+
+            matched_rects.sort(key=lambda x: x[0])
+            colors: List[str] = []
+            for rx, ch in matched_rects:
+                if not colors or colors[-1] != ch:
+                    colors.append(ch)
+
+            if colors:
+                entry.colors = colors
+                for ch in colors:
+                    for cat in layout.categories:
+                        if cat.color.upper() == ch.upper() and cat.category_id not in entry.category_ids:
+                            entry.category_ids.append(cat.category_id)
+
+        return entries
 
     def _parse_day(
         self,
@@ -373,6 +647,7 @@ class TimetableParser:
         else:
             entries = []
 
+        entries = self._enrich_entries_with_colors_and_categories(entries, day_key, layout, page)
         return entries
 
     def _parse_monday_dynamic(
@@ -634,13 +909,17 @@ class TimetableParser:
             )
         )
 
-        # 5. Wykład specjalizujący (13:15 - 15:30) Spans both groups
+        # 5. Wykład specjalizujący spans both groups
+        wyklad_rects = [r for r in rects if r["x0"] > 250.0]
+        w_x0 = min(r["x0"] for r in wyklad_rects) if wyklad_rects else 262.36
+        w_x1 = max(r["x1"] for r in wyklad_rects) if wyklad_rects else 333.81
+        wyklad_hours = self.x_coords_to_hours(w_x0, w_x1, cols.time_start_x, cols.col_15m_width, cols.start_hour)
         entries.append(
             TimetableEntry(
                 subject="Wykład specjalizujący",
-                hours=self.x_coords_to_hours(217.6, 286.9, cols.time_start_x, cols.col_15m_width, cols.start_hour),
+                hours=wyklad_hours,
                 academic_instructor="Kwiatkowski M.",
-                room="D 0/9A",
+                room="B",
                 type="Lecture",
                 notes="Wykład dla obu grup",
             )

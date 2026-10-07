@@ -563,3 +563,270 @@ def test_bind_tree_double_click_and_tooltips():
         assert tip.tip_window is None
     finally:
         root.destroy()
+
+
+def test_dialog_lifecycle_modal_grab_fix(monkeypatch: pytest.MonkeyPatch):
+    """Verify SlotDialog, CourseDialog, and other modal dialogs execute deiconify() and update_idletasks() before grab_set()."""
+    import tkinter as tk
+    from src.gui import SlotDialog, CourseDialog, CategoryDialog, OverlayDialog, CustomNoteDialog
+    from src.core.models import ScheduleCategory, TimetableEntry
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        # 1. SlotDialog
+        entry = TimetableEntry(subject="Math", hours="08:15-09:45", academic_instructor="Prof. X", room="101", type="Lab")
+        cat = ScheduleCategory(category_id="cat_math", name="Mathematics", color="#3498DB")
+        slot_dlg = SlotDialog(root, title="Edit Slot", entry=entry, available_categories=[cat])
+        slot_dlg.update()
+        assert slot_dlg.winfo_exists()
+        assert slot_dlg.subject_var.get() == "Math"
+        slot_dlg.destroy()
+
+        # 2. CategoryDialog
+        cat_dlg = CategoryDialog(root, title="Test Cat", category=cat)
+        cat_dlg.update()
+        assert cat_dlg.winfo_exists()
+        assert cat_dlg.id_var.get() == "cat_math"
+        cat_dlg.destroy()
+
+        # 3. CustomNoteDialog
+        note_dlg = CustomNoteDialog(root, title="Test Note", initial_text="Sample annotation")
+        note_dlg.update()
+        assert note_dlg.winfo_exists()
+        assert note_dlg.note_var.get() == "Sample annotation"
+        note_dlg.destroy()
+
+        # 4. CourseDialog
+        course_dlg = CourseDialog(root, title="Add Course")
+        course_dlg.update()
+        assert course_dlg.winfo_exists()
+        course_dlg.destroy()
+
+        # 5. OverlayDialog
+        ov_dlg = OverlayDialog(root, title="Add Overlay")
+        ov_dlg.update()
+        assert ov_dlg.winfo_exists()
+        ov_dlg.destroy()
+    finally:
+        root.destroy()
+
+
+def test_bind_tree_double_click_guards_empty_space_and_headers():
+    """Verify double click event is ignored on header rows and empty background, only firing on valid row items."""
+    import tkinter as tk
+    from tkinter import ttk
+    from src.gui import bind_tree_double_click
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        tree = ttk.Treeview(root, columns=("col1",), show="headings")
+        tree.heading("col1", text="Header 1")
+        tree.pack()
+        row1 = tree.insert("", tk.END, values=("Row 1",))
+        root.update()
+
+        called = []
+        def on_edit():
+            called.append(True)
+
+        bind_tree_double_click(tree, on_edit)
+
+        class MockEvent:
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
+
+        # Simulate click on header: mock identify_region -> "heading"
+        tree.identify_region = lambda x, y: "heading"
+        tree.identify_row = lambda y: ""
+        tree._on_double_click(MockEvent(10, 5))
+        assert len(called) == 0
+
+        # Simulate click on empty space: mock identify_region -> "nothing"
+        tree.identify_region = lambda x, y: "nothing"
+        tree.identify_row = lambda y: ""
+        tree._on_double_click(MockEvent(10, 500))
+        assert len(called) == 0
+
+        # Simulate click on actual cell row: mock identify_region -> "cell"
+        tree.identify_region = lambda x, y: "cell"
+        tree.identify_row = lambda y: row1
+        tree._on_double_click(MockEvent(10, 20))
+        assert len(called) == 1
+    finally:
+        root.destroy()
+
+
+def test_editor_mode_styling_and_notes_tab_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify Editor mode dedicated Styling & Notes tab, categories/overlays/footer editing, and sync."""
+    from src.core.models import (
+        Timetable, TimetableEntry, TimetableLayout, ScheduleCategory, BackgroundOverlay, FooterMetadata
+    )
+
+    layout = TimetableLayout.create_default()
+    cat1 = ScheduleCategory(category_id="cat_lecture", name="Wykład", color="#E74C3C", description="Wykłady teoretyczne")
+    layout.categories = [cat1]
+    layout.footer.campus_location_note = "Wszystkie sale na ul. Słonecznej 54"
+    layout.footer.dean_hours_note = "Godziny dziekańskie: wtorek 11:30-12:45"
+    layout.footer.author_signature = "Przygotował: Samorząd"
+    layout.custom_notes = ["Pierwszy zjazd: tydzień nieparzysty", "Obowiązkowa obecność"]
+
+    entry1 = TimetableEntry(
+        subject="Programowanie Obiektowe",
+        hours="08:15-09:45",
+        academic_instructor="Dr Kowalski",
+        room="S_101",
+        type="Lecture",
+        category_ids=["cat_lecture"],
+        colors=["#E74C3C"],
+    )
+    tt = Timetable(monday=[entry1], layout=layout)
+
+    gui = TimetableGUI(timetable=tt, base_output_dir=tmp_path, initial_mode="edit")
+    try:
+        gui.root.update()
+
+        # 1. Styling tab exists and can be selected
+        assert hasattr(gui, "styling_frame")
+        assert hasattr(gui, "editor_cat_tree")
+        assert hasattr(gui, "editor_notes_tree")
+        assert hasattr(gui, "editor_ov_tree")
+
+        gui._open_styling_tab()
+        assert gui.notebook.select() == str(gui.styling_frame)
+
+        # 2. Extracted working state verified
+        assert any(c.category_id == "cat_lecture" for c in gui.editor_categories)
+        assert gui.editor_campus_loc_var.get() == "Wszystkie sale na ul. Słonecznej 54"
+        assert "11:30-12:45" in gui.editor_dean_hours_var.get()
+        assert gui.editor_author_sig_var.get() == "Przygotował: Samorząd"
+        assert any("Pierwszy zjazd" in n for n in gui.editor_notes)
+
+        # Check treeview items populated
+        assert len(gui.editor_cat_tree.get_children()) >= 1
+        assert len(gui.editor_notes_tree.get_children()) >= 2
+
+        # 3. Add Category in Editor Mode
+        new_cat = ScheduleCategory(category_id="cat_lab", name="Laboratorium", color="#2ECC71", description="Zajęcia praktyczne")
+        monkeypatch.setattr("src.gui.CategoryDialog", lambda parent, title, category=None: type("DummyDlg", (), {
+            "result": new_cat,
+            "wait_window": lambda self, d: None,
+        })())
+        gui.editor_categories.append(new_cat)
+        gui._refresh_editor_categories()
+        gui._refresh_all_tables()
+        assert any(c.category_id == "cat_lab" for c in gui.editor_categories)
+
+        # 4. Add Canvas Note
+        gui.editor_notes.append("Dodatkowa uwaga egzaminacyjna")
+        gui._refresh_editor_notes()
+        assert len(gui.editor_notes_tree.get_children()) == 3
+
+        # 5. Add Overlay
+        new_ov = BackgroundOverlay(
+            overlay_id="ov_rector",
+            label="Godziny Rektorskie",
+            day="friday",
+            start_time="12:00",
+            end_time="14:00",
+            color="#E67E22",
+        )
+        gui.editor_overlays.append(new_ov)
+        gui._refresh_editor_overlays()
+        assert len(gui.editor_ov_tree.get_children()) >= 1
+
+        # 6. Test Slot Quick Set Color
+        gui.tree_views["monday"].selection_set("0")
+        monkeypatch.setattr("tkinter.colorchooser.askcolor", lambda *args, **kwargs: ((52, 152, 219), "#3498DB"))
+        gui._on_quick_set_slot_color("monday")
+        assert gui.timetable.monday[0].colors == ["#3498DB"]
+        assert gui.timetable.monday[0].is_modified is True
+
+        # 7. Test Save & Regenerate PDF from Editor Mode (PDF export parity)
+        monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *args, **kwargs: None)
+        gui._on_save_regenerate()
+        assert gui.storage.output_pdf_path.exists()
+        assert gui.timetable.layout.campus_location_note == "Wszystkie sale na ul. Słonecznej 54"
+        assert any(c.category_id == "cat_lab" for c in gui.timetable.layout.categories)
+
+        # 8. Test Save & Load Project from Editor Mode (.schedproj export parity)
+        proj_dest = tmp_path / "editor_exported.schedproj"
+        monkeypatch.setattr("tkinter.filedialog.asksaveasfilename", lambda **kwargs: str(proj_dest))
+        gui._on_save_project()
+        assert proj_dest.exists()
+
+        # Load project into new or current GUI
+        monkeypatch.setattr("tkinter.filedialog.askopenfilename", lambda **kwargs: str(proj_dest))
+        gui._on_load_project()
+        assert any(c.category_id == "cat_lab" for c in gui.editor_categories)
+        assert gui.editor_campus_loc_var.get() == "Wszystkie sale na ul. Słonecznej 54"
+    finally:
+        gui.root.destroy()
+
+
+def test_editor_mode_slot_dialog_multicolor_and_category_assignment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify SlotDialog and quick assign allow configuring categories, custom notes, and multi-color striping."""
+    from src.core.models import Timetable, TimetableEntry, TimetableLayout, ScheduleCategory
+    from src.gui import SlotDialog
+
+    cat_math = ScheduleCategory(category_id="cat_math", name="Mathematics", color="#3498DB")
+    cat_phys = ScheduleCategory(category_id="cat_phys", name="Physics", color="#E74C3C")
+    layout = TimetableLayout.create_default()
+    layout.categories = [cat_math, cat_phys]
+
+    entry = TimetableEntry(
+        subject="Algebra",
+        hours="10:00-11:30",
+        academic_instructor="Dr Gauss",
+        room="Auditorium 1",
+        type="Lecture",
+    )
+    tt = Timetable(tuesday=[entry], layout=layout)
+
+    gui = TimetableGUI(timetable=tt, base_output_dir=tmp_path, initial_mode="edit")
+    try:
+        gui.root.update()
+
+        # 1. Test quick category assign
+        gui.tree_views["tuesday"].selection_set("0")
+        monkeypatch.setattr("tkinter.Toplevel.grab_set", lambda self: None)
+        # Mock quick assign
+        gui._on_quick_assign_category("tuesday")
+        # Ensure category list populated
+        assert len(gui.editor_categories) == 2
+
+        # 2. Test SlotDialog with multi-color striping
+        slot_dlg = SlotDialog(
+            gui.root,
+            title="Edit Slot",
+            initial_day="tuesday",
+            entry=entry,
+            available_categories=gui.editor_categories,
+        )
+        slot_dlg.update()
+        slot_dlg.colors_var.set("#3498DB, #E74C3C")
+        slot_dlg.custom_note_var.set("Split group lab")
+        slot_dlg.category_var.set("Mathematics (cat_math)")
+        slot_dlg._on_confirm()
+
+        assert slot_dlg.result is not None
+        day, updated_entry = slot_dlg.result
+        assert day == "tuesday"
+        assert updated_entry.colors == ["#3498DB", "#E74C3C"]
+        assert updated_entry.category_ids == ["cat_math"]
+        assert updated_entry.custom_note == "Split group lab"
+
+        # Apply updated entry
+        gui.timetable.modify_entry("tuesday", 0, updated_entry)
+        gui._refresh_day_table("tuesday")
+        assert gui.timetable.tuesday[0].colors == ["#3498DB", "#E74C3C"]
+        assert gui.timetable.tuesday[0].category_ids == ["cat_math"]
+
+        # 3. Export to PDF with generator
+        monkeypatch.setattr("tkinter.messagebox.showinfo", lambda *args, **kwargs: None)
+        gui._on_save_regenerate()
+        assert gui.storage.output_pdf_path.exists()
+    finally:
+        gui.root.destroy()

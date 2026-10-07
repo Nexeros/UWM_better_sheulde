@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.core.generator import TimetablePDFGenerator
 from src.core.models import (
@@ -16,8 +16,10 @@ from src.core.models import (
     AcademicYear,
     BackgroundOverlay,
     BaseGroup,
+    CategoryLegendItem,
     ConflictRule,
     CourseRequirement,
+    FooterMetadata,
     Instructor,
     Room,
     ScheduleCategory,
@@ -172,13 +174,22 @@ def add_help_icon(parent: tk.Widget, tooltip_text: str) -> ttk.Label:
 def bind_tree_double_click(tree: ttk.Treeview, edit_func: Callable[[], None]) -> None:
     """Safely bind double-click to an edit action, ignoring clicks on empty treeview areas."""
     def on_dbl_click(event):
-        row_id = tree.identify_row(event.y)
-        if not row_id:
-            return
+        if hasattr(event, "x") and hasattr(event, "y"):
+            region = tree.identify_region(event.x, event.y)
+            if region and region not in ("cell", "tree"):
+                return
+            row_id = tree.identify_row(event.y)
+            if not row_id:
+                return
+        else:
+            row_id = tree.identify_row(getattr(event, "y", 0))
+            if not row_id:
+                return
         tree.selection_set(row_id)
         tree.focus(row_id)
         edit_func()
 
+    tree._on_double_click = on_dbl_click
     tree.bind("<Double-1>", on_dbl_click)
 
 
@@ -193,7 +204,12 @@ class CategoryDialog(tk.Toplevel):
         super().__init__(parent)
         self.title(title)
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.category = category
         self.result: Optional[ScheduleCategory] = None
@@ -288,7 +304,12 @@ class OverlayDialog(tk.Toplevel):
         super().__init__(parent)
         self.title(title)
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.overlay = overlay
         self.result: Optional[BackgroundOverlay] = None
@@ -434,7 +455,12 @@ class CustomNoteDialog(tk.Toplevel):
         super().__init__(parent)
         self.title(title)
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.result: Optional[str] = None
 
@@ -484,7 +510,12 @@ class SlotDialog(tk.Toplevel):
         super().__init__(parent)
         self.title(title)
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.result: Optional[Tuple[str, TimetableEntry]] = None
         self.initial_day = initial_day
@@ -716,7 +747,12 @@ class RoomDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Edit Room" if room else "Add New Room")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.room = room
         self.result: Optional[Room] = None
@@ -798,11 +834,17 @@ class CourseDialog(tk.Toplevel):
         available_groups: Optional[List[str]] = None,
         available_instructors: Optional[List[Tuple[str, str]]] = None,
         available_categories: Optional[List[ScheduleCategory]] = None,
+        title: Optional[str] = None,
     ):
         super().__init__(parent)
-        self.title("Edit Course" if course else "Add New Course")
+        self.title(title or ("Edit Course" if course else "Add New Course"))
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.course = course
         self.available_years = available_years or ["rok_4"]
@@ -1093,7 +1135,12 @@ class InstructorDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Edit Instructor" if instructor else "Add New Instructor")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.instructor = instructor
         self.result: Optional[Instructor] = None
@@ -1183,7 +1230,12 @@ class AcademicYearDialog(tk.Toplevel):
         self.year = year
         self.title("Edit Academic Year" if year else "Add Academic Year")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
         self.study_cycles = study_cycles
         self.result: Optional[AcademicYear] = None
 
@@ -1249,7 +1301,12 @@ class SpecializationDialog(tk.Toplevel):
         self.parent_year_id = parent_year_id
         self.title("Edit Specialization" if spec else "Add Specialization")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
         self.years = years
         self.result: Optional[Tuple[str, Specialization]] = None
 
@@ -1331,7 +1388,12 @@ class BaseGroupDialog(tk.Toplevel):
         self.parent_spec_id = parent_spec_id
         self.title("Edit Student Base Group" if group else "Add Student Base Group")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
         self.specs = specs
         self.result: Optional[Tuple[str, str, BaseGroup]] = None
 
@@ -1405,7 +1467,12 @@ class SubgroupDialog(tk.Toplevel):
         self.subgroup = subgroup
         self.title("Edit Student Subgroup" if subgroup else "Add Student Subgroup")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
         self.result: Optional[StudentSubgroup] = None
 
         self.available_groups = available_groups
@@ -1469,7 +1536,12 @@ class ConflictRuleDialog(tk.Toplevel):
         self.rule = rule
         self.title("Edit Conflict Rule" if rule else "Add Conflict Rule")
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
         self.result: Optional[ConflictRule] = None
 
         self._build_ui()
@@ -1543,7 +1615,12 @@ class ScheduleVerificationDialog(tk.Toplevel):
         self.geometry("980x640")
         self.minsize(820, 520)
         self.transient(parent)
-        self.grab_set()
+        self.deiconify()
+        self.update_idletasks()
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass
 
         self.result = result
         self.config = config
@@ -3198,9 +3275,26 @@ class TimetableGUI:
             value=f"Run Dir: {self.storage.run_dir.name}" if self.storage else "Run Dir: [Not initialized]"
         )
 
+        # Editor Working State: Categories, Overlays, and Footer Annotations
+        self.editor_categories: List[ScheduleCategory] = []
+        self.editor_overlays: List[BackgroundOverlay] = []
+        self.editor_notes: List[str] = []
+        self.editor_campus_loc_var = tk.StringVar(value="")
+        self.editor_dean_hours_var = tk.StringVar(value="")
+        self.editor_author_sig_var = tk.StringVar(value="")
+
+        def _on_footer_entry_changed(*_):
+            self.is_modified = True
+
+        self.editor_campus_loc_var.trace_add("write", _on_footer_entry_changed)
+        self.editor_dean_hours_var.trace_add("write", _on_footer_entry_changed)
+        self.editor_author_sig_var.trace_add("write", _on_footer_entry_changed)
+
         self.tree_views: Dict[str, ttk.Treeview] = {}
         self._build_ui()
         self._setup_keyboard_shortcuts()
+        if self.timetable:
+            self._extract_editor_state_from_timetable()
         self._refresh_all_tables()
         self.set_mode(initial_mode)
 
@@ -3296,7 +3390,14 @@ class TimetableGUI:
         )
         browse_btn.pack(side=tk.RIGHT)
 
-        # Notebook with Day Tabs
+        style_quick_btn = ttk.Button(
+            file_frame,
+            text="🎨 Styling & Notes...",
+            command=self._open_styling_tab,
+        )
+        style_quick_btn.pack(side=tk.RIGHT, padx=(0, 6))
+
+        # Notebook with Day Tabs and Styling & Notes Tab
         self.notebook = ttk.Notebook(self.editor_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
@@ -3308,18 +3409,20 @@ class TimetableGUI:
             tree_frame = ttk.Frame(day_frame)
             tree_frame.pack(fill=tk.BOTH, expand=True)
 
-            cols = ("Hours", "Subject", "Instructor", "Room", "Type", "Group", "Notes")
+            cols = ("Hours", "Subject", "Instructor", "Room", "Type", "Group", "Notes", "Category", "Colors")
             tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
             for c in cols:
                 tree.heading(c, text=c)
 
-            tree.column("Hours", width=110, anchor=tk.CENTER)
-            tree.column("Subject", width=220, anchor=tk.W)
-            tree.column("Instructor", width=140, anchor=tk.W)
-            tree.column("Room", width=80, anchor=tk.CENTER)
-            tree.column("Type", width=90, anchor=tk.CENTER)
-            tree.column("Group", width=60, anchor=tk.CENTER)
-            tree.column("Notes", width=120, anchor=tk.W)
+            tree.column("Hours", width=105, anchor=tk.CENTER)
+            tree.column("Subject", width=200, anchor=tk.W)
+            tree.column("Instructor", width=130, anchor=tk.W)
+            tree.column("Room", width=75, anchor=tk.CENTER)
+            tree.column("Type", width=80, anchor=tk.CENTER)
+            tree.column("Group", width=55, anchor=tk.CENTER)
+            tree.column("Notes", width=110, anchor=tk.W)
+            tree.column("Category", width=90, anchor=tk.CENTER)
+            tree.column("Colors", width=85, anchor=tk.CENTER)
 
             vsb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
             tree.configure(yscrollcommand=vsb.set)
@@ -3343,6 +3446,21 @@ class TimetableGUI:
             ttk.Button(btn_box, text="Delete Selected (Del)", command=lambda d=day: self._on_delete_slot(d)).pack(
                 side=tk.LEFT, padx=3
             )
+            ttk.Button(
+                btn_box,
+                text="🏷️ Assign Category...",
+                command=lambda d=day: self._on_quick_assign_category(d),
+            ).pack(side=tk.LEFT, padx=3)
+            ttk.Button(
+                btn_box,
+                text="🎨 Set Color...",
+                command=lambda d=day: self._on_quick_set_slot_color(d),
+            ).pack(side=tk.LEFT, padx=3)
+
+        # Dedicated View: Styling, Categories, Overlays & Footer Notes Tab
+        self.styling_frame = ttk.Frame(self.notebook, padding="5 5 5 5")
+        self.notebook.add(self.styling_frame, text="🎨 Styling & Notes")
+        self._build_editor_styling_tab(self.styling_frame)
 
         # Editor Bottom Bar
         bottom_frame = ttk.Frame(self.editor_frame, padding="10 5 10 10")
@@ -3360,6 +3478,11 @@ class TimetableGUI:
         ttk.Button(bottom_frame, text="View JSON", command=self._on_view_json).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             bottom_frame,
+            text="🎨 Styling & Notes",
+            command=self._open_styling_tab,
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            bottom_frame,
             text="Save & Regenerate PDF (Ctrl+S)",
             command=self._on_save_regenerate,
         ).pack(side=tk.RIGHT, padx=5)
@@ -3374,6 +3497,465 @@ class TimetableGUI:
         )
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _build_editor_styling_tab(self, parent: ttk.Frame) -> None:
+        """Build dedicated tab for categories, colors, background zones, and footer annotations."""
+        self.editor_styling_notebook = nb = ttk.Notebook(parent)
+        nb.pack(fill=tk.BOTH, expand=True)
+
+        # -------------------------------------------------------------
+        # Tab 1: Categories & Colors
+        # -------------------------------------------------------------
+        cat_card = ttk.Frame(nb, padding="10 10 10 10")
+        nb.add(cat_card, text="Categories & Colors")
+
+        top_bar = ttk.Frame(cat_card)
+        top_bar.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
+        ttk.Label(
+            top_bar,
+            text="Visual Categories & Hex Color Palettes",
+            font=("Helvetica", 10, "bold"),
+        ).pack(side=tk.LEFT)
+        add_help_icon(
+            top_bar,
+            "Define visual categories and hex colors. Slots assigned to these categories render in cell backgrounds and dynamic PDF legend.",
+        ).pack(side=tk.LEFT, padx=5)
+
+        cols_cat = ("ID", "Name", "Color", "Description")
+        self.editor_cat_tree = ttk.Treeview(cat_card, columns=cols_cat, show="headings", selectmode="browse")
+        for c in cols_cat:
+            self.editor_cat_tree.heading(c, text=c)
+        self.editor_cat_tree.column("ID", width=120, anchor=tk.W)
+        self.editor_cat_tree.column("Name", width=180, anchor=tk.W)
+        self.editor_cat_tree.column("Color", width=100, anchor=tk.CENTER)
+        self.editor_cat_tree.column("Description", width=320, anchor=tk.W)
+
+        cat_sb = ttk.Scrollbar(cat_card, orient=tk.VERTICAL, command=self.editor_cat_tree.yview)
+        self.editor_cat_tree.configure(yscrollcommand=cat_sb.set)
+        self.editor_cat_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        cat_sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bind_tree_double_click(self.editor_cat_tree, self._on_editor_edit_category)
+
+        cat_btns = ttk.Frame(cat_card, padding="5 5 0 0")
+        cat_btns.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Button(cat_btns, text="+ Add Category", command=self._on_editor_add_category).pack(side=tk.LEFT, padx=3)
+        ttk.Button(cat_btns, text="Edit Category (Enter)", command=self._on_editor_edit_category).pack(side=tk.LEFT, padx=3)
+        ttk.Button(cat_btns, text="Delete Category (Del)", command=self._on_editor_delete_category).pack(side=tk.LEFT, padx=3)
+
+        # -------------------------------------------------------------
+        # Tab 2: Footer Notes & Annotations
+        # -------------------------------------------------------------
+        notes_card = ttk.Frame(nb, padding="10 10 10 10")
+        nb.add(notes_card, text="Footer & Canvas Notes")
+
+        f_box = ttk.LabelFrame(notes_card, text="Canvas Footer Fields (Zero Hardcoding)", padding="10 8 10 8")
+        f_box.pack(fill=tk.X, side=tk.TOP, pady=(0, 8))
+
+        ttk.Label(f_box, text="Campus / Facility Location Note:").grid(row=0, column=0, sticky=tk.W, pady=4)
+        ttk.Entry(f_box, textvariable=self.editor_campus_loc_var, width=58).grid(
+            row=0, column=1, sticky=tk.W, pady=4, padx=(6, 0)
+        )
+
+        ttk.Label(f_box, text="Dean / Rector Hours Note:").grid(row=1, column=0, sticky=tk.W, pady=4)
+        ttk.Entry(f_box, textvariable=self.editor_dean_hours_var, width=58).grid(
+            row=1, column=1, sticky=tk.W, pady=4, padx=(6, 0)
+        )
+
+        ttk.Label(f_box, text="Author / Signature Label:").grid(row=2, column=0, sticky=tk.W, pady=4)
+        ttk.Entry(f_box, textvariable=self.editor_author_sig_var, width=58).grid(
+            row=2, column=1, sticky=tk.W, pady=4, padx=(6, 0)
+        )
+
+        n_box = ttk.LabelFrame(notes_card, text="General Remarks & Free-form Notes", padding="10 8 10 8")
+        n_box.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
+
+        self.editor_notes_tree = ttk.Treeview(n_box, columns=("Note",), show="headings", selectmode="browse")
+        self.editor_notes_tree.heading("Note", text="Canvas Note / Footnote Annotation")
+        self.editor_notes_tree.column("Note", width=600, anchor=tk.W)
+
+        notes_sb = ttk.Scrollbar(n_box, orient=tk.VERTICAL, command=self.editor_notes_tree.yview)
+        self.editor_notes_tree.configure(yscrollcommand=notes_sb.set)
+        self.editor_notes_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        notes_sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bind_tree_double_click(self.editor_notes_tree, self._on_editor_edit_note)
+
+        notes_btns = ttk.Frame(n_box, padding="5 5 0 0")
+        notes_btns.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Button(notes_btns, text="+ Add Note", command=self._on_editor_add_note).pack(side=tk.LEFT, padx=3)
+        ttk.Button(notes_btns, text="Edit Note", command=self._on_editor_edit_note).pack(side=tk.LEFT, padx=3)
+        ttk.Button(notes_btns, text="Delete Note", command=self._on_editor_delete_note).pack(side=tk.LEFT, padx=3)
+
+        # -------------------------------------------------------------
+        # Tab 3: Background Overlays
+        # -------------------------------------------------------------
+        ov_card = ttk.Frame(nb, padding="10 10 10 10")
+        nb.add(ov_card, text="Background Zones & Overlays")
+
+        ov_top = ttk.Frame(ov_card)
+        ov_top.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
+        ttk.Label(
+            ov_top,
+            text="Time Horizon Overlays & Reserved Periods",
+            font=("Helvetica", 10, "bold"),
+        ).pack(side=tk.LEFT)
+        add_help_icon(
+            ov_top,
+            "Reserved blocks (Dean's hours, Rector's hours, maintenance windows) displayed with custom colors and hatching patterns.",
+        ).pack(side=tk.LEFT, padx=5)
+
+        cols_ov = ("ID", "Label", "Day", "Hours", "Color", "Opacity", "Pattern", "Description")
+        self.editor_ov_tree = ttk.Treeview(ov_card, columns=cols_ov, show="headings", selectmode="browse")
+        for c in cols_ov:
+            self.editor_ov_tree.heading(c, text=c)
+        self.editor_ov_tree.column("ID", width=80, anchor=tk.W)
+        self.editor_ov_tree.column("Label", width=140, anchor=tk.W)
+        self.editor_ov_tree.column("Day", width=80, anchor=tk.CENTER)
+        self.editor_ov_tree.column("Hours", width=100, anchor=tk.CENTER)
+        self.editor_ov_tree.column("Color", width=80, anchor=tk.CENTER)
+        self.editor_ov_tree.column("Opacity", width=70, anchor=tk.CENTER)
+        self.editor_ov_tree.column("Pattern", width=80, anchor=tk.CENTER)
+        self.editor_ov_tree.column("Description", width=200, anchor=tk.W)
+
+        ov_sb = ttk.Scrollbar(ov_card, orient=tk.VERTICAL, command=self.editor_ov_tree.yview)
+        self.editor_ov_tree.configure(yscrollcommand=ov_sb.set)
+        self.editor_ov_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ov_sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        bind_tree_double_click(self.editor_ov_tree, self._on_editor_edit_overlay)
+
+        ov_btns = ttk.Frame(ov_card, padding="5 5 0 0")
+        ov_btns.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Button(ov_btns, text="+ Add Overlay", command=self._on_editor_add_overlay).pack(side=tk.LEFT, padx=3)
+        ttk.Button(ov_btns, text="Edit Overlay", command=self._on_editor_edit_overlay).pack(side=tk.LEFT, padx=3)
+        ttk.Button(ov_btns, text="Delete Overlay", command=self._on_editor_delete_overlay).pack(side=tk.LEFT, padx=3)
+
+    def _open_styling_tab(self) -> None:
+        """Switch editor notebook to the Styling & Notes tab."""
+        if hasattr(self, "styling_frame"):
+            self.notebook.select(self.styling_frame)
+
+    def _refresh_editor_categories(self) -> None:
+        if not hasattr(self, "editor_cat_tree"):
+            return
+        for item in self.editor_cat_tree.get_children():
+            self.editor_cat_tree.delete(item)
+        for idx, cat in enumerate(self.editor_categories):
+            tag_name = f"ecol_{cat.color.lstrip('#')}"
+            try:
+                self.editor_cat_tree.tag_configure(tag_name, background=cat.color)
+                tags = (tag_name,)
+            except Exception:
+                tags = ()
+            self.editor_cat_tree.insert(
+                "",
+                tk.END,
+                iid=str(idx),
+                values=(cat.category_id, cat.name, cat.color, cat.description or ""),
+                tags=tags,
+            )
+
+    def _refresh_editor_notes(self) -> None:
+        if not hasattr(self, "editor_notes_tree"):
+            return
+        for item in self.editor_notes_tree.get_children():
+            self.editor_notes_tree.delete(item)
+        for idx, note in enumerate(self.editor_notes):
+            self.editor_notes_tree.insert("", tk.END, iid=str(idx), values=(note,))
+
+    def _refresh_editor_overlays(self) -> None:
+        if not hasattr(self, "editor_ov_tree"):
+            return
+        for item in self.editor_ov_tree.get_children():
+            self.editor_ov_tree.delete(item)
+        for idx, ov in enumerate(self.editor_overlays):
+            hours_str = f"{ov.start_time}-{ov.end_time}"
+            tag_name = f"eov_{ov.color.lstrip('#')}"
+            try:
+                self.editor_ov_tree.tag_configure(tag_name, background=ov.color)
+                tags = (tag_name,)
+            except Exception:
+                tags = ()
+            self.editor_ov_tree.insert(
+                "",
+                tk.END,
+                iid=str(idx),
+                values=(
+                    ov.overlay_id,
+                    ov.label,
+                    ov.day.capitalize(),
+                    hours_str,
+                    ov.color,
+                    f"{ov.opacity:.2f}",
+                    ov.pattern,
+                    ov.description or "",
+                ),
+                tags=tags,
+            )
+
+    def _refresh_editor_styling_tab(self) -> None:
+        self._refresh_editor_categories()
+        self._refresh_editor_notes()
+        self._refresh_editor_overlays()
+
+    def _on_editor_add_category(self) -> None:
+        dlg = CategoryDialog(self.root, title="Add Visual Category")
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.editor_categories.append(dlg.result)
+            self.is_modified = True
+            self._refresh_editor_categories()
+            self._refresh_all_tables()
+            self.status_var.set(f"Added category '{dlg.result.name}'.")
+
+    def _on_editor_edit_category(self) -> None:
+        if not hasattr(self, "editor_cat_tree"):
+            return
+        sel = self.editor_cat_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a category to edit.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_categories):
+            return
+        cat = self.editor_categories[idx]
+        dlg = CategoryDialog(self.root, title=f"Edit Category: {cat.name}", category=cat)
+        self.root.wait_window(dlg)
+        if dlg.result:
+            old_id = cat.category_id
+            new_cat = dlg.result
+            self.editor_categories[idx] = new_cat
+            if self.timetable and old_id != new_cat.category_id:
+                for entry in self.timetable.get_all_entries():
+                    if old_id in entry.category_ids:
+                        entry.category_ids = [
+                            new_cat.category_id if cid == old_id else cid for cid in entry.category_ids
+                        ]
+            self.is_modified = True
+            self._refresh_editor_categories()
+            self._refresh_all_tables()
+            self.status_var.set(f"Updated category '{new_cat.name}'.")
+
+    def _on_editor_delete_category(self) -> None:
+        if not hasattr(self, "editor_cat_tree"):
+            return
+        sel = self.editor_cat_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a category to delete.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_categories):
+            return
+        cat = self.editor_categories[idx]
+        if messagebox.askyesno("Confirm Delete", f"Delete category '{cat.name}' ({cat.category_id})?", parent=self.root):
+            del_cat = self.editor_categories.pop(idx)
+            if self.timetable:
+                for entry in self.timetable.get_all_entries():
+                    if del_cat.category_id in entry.category_ids:
+                        entry.category_ids.remove(del_cat.category_id)
+            self.is_modified = True
+            self._refresh_editor_categories()
+            self._refresh_all_tables()
+            self.status_var.set(f"Deleted category '{del_cat.name}'.")
+
+    def _on_editor_add_note(self) -> None:
+        dlg = CustomNoteDialog(self.root, title="Add Custom Canvas Note")
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.editor_notes.append(dlg.result)
+            self.is_modified = True
+            self._refresh_editor_notes()
+            self.status_var.set(f"Added note: '{dlg.result[:30]}...'")
+
+    def _on_editor_edit_note(self) -> None:
+        if not hasattr(self, "editor_notes_tree"):
+            return
+        sel = self.editor_notes_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a note to edit.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_notes):
+            return
+        curr = self.editor_notes[idx]
+        dlg = CustomNoteDialog(self.root, title="Edit Custom Note", initial_text=curr)
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.editor_notes[idx] = dlg.result
+            self.is_modified = True
+            self._refresh_editor_notes()
+            self.status_var.set("Updated custom note.")
+
+    def _on_editor_delete_note(self) -> None:
+        if not hasattr(self, "editor_notes_tree"):
+            return
+        sel = self.editor_notes_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a note to delete.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_notes):
+            return
+        if messagebox.askyesno("Confirm Delete", "Delete selected canvas note?", parent=self.root):
+            self.editor_notes.pop(idx)
+            self.is_modified = True
+            self._refresh_editor_notes()
+            self.status_var.set("Deleted custom note.")
+
+    def _on_editor_add_overlay(self) -> None:
+        dlg = OverlayDialog(self.root, title="Add Background Overlay")
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.editor_overlays.append(dlg.result)
+            self.is_modified = True
+            self._refresh_editor_overlays()
+            self.status_var.set(f"Added overlay '{dlg.result.label}'.")
+
+    def _on_editor_edit_overlay(self) -> None:
+        if not hasattr(self, "editor_ov_tree"):
+            return
+        sel = self.editor_ov_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select an overlay to edit.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_overlays):
+            return
+        ov = self.editor_overlays[idx]
+        dlg = OverlayDialog(self.root, title=f"Edit Overlay: {ov.label}", overlay=ov)
+        self.root.wait_window(dlg)
+        if dlg.result:
+            self.editor_overlays[idx] = dlg.result
+            self.is_modified = True
+            self._refresh_editor_overlays()
+            self.status_var.set(f"Updated overlay '{dlg.result.label}'.")
+
+    def _on_editor_delete_overlay(self) -> None:
+        if not hasattr(self, "editor_ov_tree"):
+            return
+        sel = self.editor_ov_tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select an overlay to delete.", parent=self.root)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.editor_overlays):
+            return
+        ov = self.editor_overlays[idx]
+        if messagebox.askyesno("Confirm Delete", f"Delete overlay '{ov.label}'?", parent=self.root):
+            del_ov = self.editor_overlays.pop(idx)
+            self.is_modified = True
+            self._refresh_editor_overlays()
+            self.status_var.set(f"Deleted overlay '{del_ov.label}'.")
+
+    def _on_quick_set_slot_color(self, day: str) -> None:
+        """Assign or override custom color on the selected timetable slot."""
+        if self.timetable is None:
+            messagebox.showinfo("No File Loaded", "Please load a PDF timetable first.", parent=self.root)
+            return
+        tree = self.tree_views.get(day)
+        if not tree:
+            return
+        sel = tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a slot to set its color.", parent=self.root)
+            return
+        idx = int(sel[0])
+        entries = self.timetable.get_entries(day)
+        if idx < 0 or idx >= len(entries):
+            return
+        entry = entries[idx]
+
+        initial = entry.colors[0] if entry.colors else "#FFFFFF"
+        chosen = colorchooser.askcolor(color=initial, title=f"Set Color for '{entry.subject}'", parent=self.root)
+        if chosen and chosen[1]:
+            hex_col = chosen[1].upper()
+            entry.colors = [hex_col]
+            entry.is_modified = True
+            self.is_modified = True
+            self._refresh_day_table(day)
+            self.status_var.set(f"Updated color for '{entry.subject}' -> {hex_col}")
+
+    def _on_quick_assign_category(self, day: str) -> None:
+        """Quickly assign or override category and category color on the selected slot."""
+        if self.timetable is None:
+            messagebox.showinfo("No File Loaded", "Please load a PDF timetable first.", parent=self.root)
+            return
+        tree = self.tree_views.get(day)
+        if not tree:
+            return
+        sel = tree.selection()
+        if not sel:
+            messagebox.showinfo("Selection Required", "Please select a slot to assign a category.", parent=self.root)
+            return
+        if not self.editor_categories:
+            messagebox.showinfo(
+                "No Categories Defined",
+                "No categories defined yet. Please add a category in the 'Styling & Notes' tab first.",
+                parent=self.root,
+            )
+            return
+        idx = int(sel[0])
+        entries = self.timetable.get_entries(day)
+        if idx < 0 or idx >= len(entries):
+            return
+        entry = entries[idx]
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"Assign Category: {entry.subject}")
+        dlg.transient(self.root)
+        dlg.deiconify()
+        dlg.update_idletasks()
+        try:
+            dlg.grab_set()
+        except tk.TclError:
+            pass
+
+        w, h = 380, 160
+        px = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - w) // 2)
+        py = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - h) // 2)
+        dlg.geometry(f"{w}x{h}+{px}+{py}")
+        dlg.minsize(320, 140)
+
+        ttk.Label(dlg, text=f"Select category for '{entry.subject}':", font=("Helvetica", 9, "bold")).pack(
+            pady=(12, 6), padx=12, anchor=tk.W
+        )
+
+        cat_names = [f"{c.name} ({c.category_id})" for c in self.editor_categories]
+        cur_val = cat_names[0] if cat_names else ""
+        if entry.category_ids:
+            for c in self.editor_categories:
+                if c.category_id in entry.category_ids:
+                    cur_val = f"{c.name} ({c.category_id})"
+                    break
+        cat_var = tk.StringVar(value=cur_val)
+        combo = ttk.Combobox(dlg, textvariable=cat_var, values=cat_names, state="readonly", width=36)
+        combo.pack(padx=12, pady=4, fill=tk.X)
+
+        btn_bar = ttk.Frame(dlg, padding="10 8 10 10")
+        btn_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        def on_assign():
+            sel_text = cat_var.get()
+            chosen_cat = None
+            for c in self.editor_categories:
+                if f"{c.name} ({c.category_id})" == sel_text:
+                    chosen_cat = c
+                    break
+            if chosen_cat:
+                entry.category_ids = [chosen_cat.category_id]
+                entry.colors = [chosen_cat.color]
+                entry.is_modified = True
+                self.is_modified = True
+                self._refresh_day_table(day)
+                self.status_var.set(f"Assigned category '{chosen_cat.name}' to '{entry.subject}'.")
+            dlg.destroy()
+
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+        dlg.bind("<Return>", lambda e: on_assign())
+
+        ttk.Button(btn_bar, text="Cancel (Esc)", command=dlg.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="Assign (Enter)", command=on_assign).pack(side=tk.RIGHT, padx=4)
 
     def set_mode(self, mode: str) -> None:
         """Switch between Schedule Editor ('edit') and Generator Wizard ('create')."""
@@ -3399,6 +3981,7 @@ class TimetableGUI:
             self.file_path_var.set(str(pdf_path))
             self.run_dir_var.set(f"Run Dir: {self.storage.run_dir.name}")
 
+        self._extract_editor_state_from_timetable()
         self._refresh_all_tables()
         self.is_modified = False
         self.set_mode("edit")
@@ -3487,6 +4070,10 @@ class TimetableGUI:
         tree = self.tree_views.get(current_day)
         if tree:
             tree.selection_remove(tree.selection())
+        elif hasattr(self, "editor_cat_tree"):
+            self.editor_cat_tree.selection_remove(self.editor_cat_tree.selection())
+            self.editor_notes_tree.selection_remove(self.editor_notes_tree.selection())
+            self.editor_ov_tree.selection_remove(self.editor_ov_tree.selection())
         self.status_var.set("Selection cleared (Esc).")
         return "break"
 
@@ -3498,8 +4085,19 @@ class TimetableGUI:
             return None
 
         current_day = self._get_current_day()
-        self._on_delete_slot(current_day)
-        return "break"
+        if current_day in VALID_DAYS:
+            self._on_delete_slot(current_day)
+            return "break"
+        elif hasattr(self, "editor_cat_tree") and focused == self.editor_cat_tree:
+            self._on_editor_delete_category()
+            return "break"
+        elif hasattr(self, "editor_notes_tree") and focused == self.editor_notes_tree:
+            self._on_editor_delete_note()
+            return "break"
+        elif hasattr(self, "editor_ov_tree") and focused == self.editor_ov_tree:
+            self._on_editor_delete_overlay()
+            return "break"
+        return None
 
     def _on_tab_changed(self, event: tk.Event) -> None:
         current_day = self._get_current_day()
@@ -3521,13 +4119,46 @@ class TimetableGUI:
 
         initial_dir = ensure_input_directory()
         selected = filedialog.askopenfilename(
-            title="Select Timetable PDF Document",
+            title="Select Timetable File",
             initialdir=str(initial_dir),
-            filetypes=[("PDF files", "*.pdf"), ("PDF files (all cases)", "*.PDF"), ("All files", "*.*")],
+            filetypes=[
+                ("All Supported Files", "*.pdf;*.PDF;*.schedproj;*.json"),
+                ("PDF files", "*.pdf"),
+                ("PDF files (all cases)", "*.PDF"),
+                ("Timetable Project files", "*.schedproj"),
+                ("JSON files", "*.json"),
+                ("All files", "*.*"),
+            ],
             parent=self.root,
         )
         if not selected:
             return
+
+        target_path = Path(selected).resolve()
+        if target_path.suffix.lower() == ".schedproj":
+            try:
+                proj = load_project(target_path)
+                if proj.config:
+                    self.wizard_frame.config = proj.config
+                    self.wizard_frame._refresh_step1_tree()
+                    self.wizard_frame._refresh_step2_tree()
+                    self.wizard_frame._refresh_step3_tree()
+                    self.wizard_frame._refresh_step4_tree()
+                    self.wizard_frame._refresh_step5()
+                    self.wizard_frame._sync_step6_from_config()
+                    self.wizard_frame._refresh_step6()
+                if proj.timetable:
+                    self.timetable = proj.timetable
+                    self.baseline_timetable = proj.baseline_timetable or copy.deepcopy(proj.timetable)
+                    self._extract_editor_state_from_timetable()
+                    self._refresh_all_tables()
+                    self.file_path_var.set(str(target_path))
+                    self.set_mode("edit")
+                    self.status_var.set(f"Loaded project '{target_path.name}' ({self.timetable.count_total_entries()} slots)")
+                return
+            except Exception as e:
+                messagebox.showerror("Load Project Error", f"Failed to load project:\n{e}", parent=self.root)
+                return
 
         self.load_pdf(selected)
 
@@ -3543,8 +4174,23 @@ class TimetableGUI:
             else:
                 self.storage.switch_file(target_path)
 
-            parser = TimetableParser(target_path, log_handler=self.storage.logger)
-            self.timetable = parser.parse()
+            if target_path.suffix.lower() == ".json":
+                with open(target_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                try:
+                    self.timetable = Timetable.model_validate_json(content)
+                except Exception:
+                    proj = ScheduleProject.model_validate_json(content)
+                    if proj.timetable:
+                        self.timetable = proj.timetable
+                    if proj.config:
+                        self.wizard_frame.config = proj.config
+                        self.wizard_frame._sync_step6_from_config()
+                        self.wizard_frame._refresh_step6()
+            else:
+                parser = TimetableParser(target_path, log_handler=self.storage.logger)
+                self.timetable = parser.parse()
+
             self.storage.save_extracted(self.timetable)
 
             self.file_path_var.set(str(target_path))
@@ -3552,6 +4198,7 @@ class TimetableGUI:
             self.is_modified = False
             self.baseline_timetable = copy.deepcopy(self.timetable)
 
+            self._extract_editor_state_from_timetable()
             self._refresh_all_tables()
             self.status_var.set(f"Loaded '{target_path.name}' ({self.timetable.count_total_entries()} slots)")
 
@@ -3568,11 +4215,18 @@ class TimetableGUI:
 
     def _get_current_day(self) -> str:
         tab_id = self.notebook.select()
+        if not tab_id:
+            return "monday"
         tab_text = self.notebook.tab(tab_id, "text").lower()
+        for d in VALID_DAYS:
+            if d in tab_text:
+                return d
         return tab_text
 
     def _refresh_day_table(self, day: str) -> None:
-        tree = self.tree_views[day]
+        tree = self.tree_views.get(day)
+        if not tree:
+            return
         for item in tree.get_children():
             tree.delete(item)
 
@@ -3586,6 +4240,9 @@ class TimetableGUI:
             notes_text = e.notes or ""
             if e.is_modified and "[MOD]" not in notes_text:
                 notes_text = f"[MOD] {notes_text}".strip()
+            cat_text = ", ".join(e.category_ids) if e.category_ids else ""
+            col_text = ", ".join(e.colors) if e.colors else ""
+
             tags = ()
             if e.is_modified:
                 tags = ("modified",)
@@ -3594,11 +4251,32 @@ class TimetableGUI:
                 tag_name = f"col_{col_hex.lstrip('#')}"
                 tree.tag_configure(tag_name, background=col_hex)
                 tags = (tag_name,)
+            elif e.category_ids:
+                cat_color = None
+                for cat in self.editor_categories:
+                    if cat.category_id in e.category_ids:
+                        cat_color = cat.color
+                        break
+                if cat_color:
+                    tag_name = f"col_{cat_color.lstrip('#')}"
+                    tree.tag_configure(tag_name, background=cat_color)
+                    tags = (tag_name,)
+
             tree.insert(
                 "",
                 tk.END,
                 iid=str(idx),
-                values=(e.hours, e.subject, e.academic_instructor, e.room, e.type, grp_text, notes_text),
+                values=(
+                    e.hours,
+                    e.subject,
+                    e.academic_instructor,
+                    e.room,
+                    e.type,
+                    grp_text,
+                    notes_text,
+                    cat_text,
+                    col_text,
+                ),
                 tags=tags,
             )
 
@@ -3606,13 +4284,251 @@ class TimetableGUI:
         for day in VALID_DAYS:
             self._refresh_day_table(day)
 
+    def _extract_editor_state_from_timetable(self) -> None:
+        """Extract pre-existing categories, overlays, colors, and footer annotations into editor working state."""
+        if self.timetable is None:
+            return
+        if self.timetable.layout is None:
+            self.timetable.layout = TimetableLayout.create_default()
+
+        layout = self.timetable.layout
+
+        # 1. Categories & Colors
+        extracted_cats: List[ScheduleCategory] = []
+        seen_cat_ids = set()
+
+        def _add_cat(cat: ScheduleCategory):
+            if cat.category_id not in seen_cat_ids:
+                seen_cat_ids.add(cat.category_id)
+                extracted_cats.append(copy.deepcopy(cat))
+
+        if layout.categories:
+            for c in layout.categories:
+                _add_cat(c)
+        if hasattr(layout.footer, "active_categories") and layout.footer.active_categories:
+            for c in layout.footer.active_categories:
+                _add_cat(c)
+        if hasattr(layout, "legend_categories") and layout.legend_categories:
+            for leg in layout.legend_categories:
+                _add_cat(
+                    ScheduleCategory(
+                        category_id=f"cat_{leg.name.lower().replace(' ', '_')}",
+                        name=leg.name,
+                        color=leg.color,
+                        description=leg.description,
+                    )
+                )
+        if hasattr(layout.footer, "legend_categories") and layout.footer.legend_categories:
+            for leg in layout.footer.legend_categories:
+                _add_cat(
+                    ScheduleCategory(
+                        category_id=f"cat_{leg.name.lower().replace(' ', '_')}",
+                        name=leg.name,
+                        color=leg.color,
+                        description=leg.description,
+                    )
+                )
+        if hasattr(self, "wizard_frame") and self.wizard_frame.config.categories:
+            for c in self.wizard_frame.config.categories:
+                _add_cat(c)
+
+        # Extract categories/colors from slot entries
+        for entry in self.timetable.get_all_entries():
+            if entry.category_ids:
+                for cid in entry.category_ids:
+                    if cid not in seen_cat_ids:
+                        col = entry.colors[0] if entry.colors else "#3498DB"
+                        name = cid.replace("cat_", "").replace("_", " ").capitalize()
+                        _add_cat(ScheduleCategory(category_id=cid, name=name, color=col))
+
+        self.editor_categories = extracted_cats
+
+        # 2. Background Overlays
+        extracted_overlays: List[BackgroundOverlay] = []
+        seen_ov_ids = set()
+
+        def _add_ov(ov: BackgroundOverlay):
+            if ov.overlay_id not in seen_ov_ids:
+                seen_ov_ids.add(ov.overlay_id)
+                extracted_overlays.append(copy.deepcopy(ov))
+
+        if layout.custom_overlays:
+            for o in layout.custom_overlays:
+                _add_ov(o)
+        if hasattr(layout, "background_overlays") and layout.background_overlays:
+            for o in layout.background_overlays:
+                _add_ov(o)
+        if hasattr(self, "wizard_frame") and self.wizard_frame.config.custom_overlays:
+            for o in self.wizard_frame.config.custom_overlays:
+                _add_ov(o)
+
+        if getattr(layout, "deans_hour", None):
+            dh = layout.deans_hour
+            dh_day = str(dh.get("day", "wtorek")).lower()
+            dh_hours = str(dh.get("hours", "11:30-12:45"))
+            dh_label = str(dh.get("label", "Godziny Dziekańskie"))
+            h_parts = dh_hours.split("-")
+            st = h_parts[0] if len(h_parts) > 0 else "11:30"
+            et = h_parts[1] if len(h_parts) > 1 else "12:45"
+            col = getattr(layout.color_styles, "deans_fill", "#FF5429")
+            if not any(o.overlay_id == "deans_hour" or o.label == dh_label for o in extracted_overlays):
+                _add_ov(
+                    BackgroundOverlay(
+                        overlay_id="deans_hour",
+                        label=dh_label,
+                        day=dh_day,
+                        start_time=st,
+                        end_time=et,
+                        color=col,
+                        opacity=0.35,
+                        pattern="diagonal",
+                        description=f"Wolne od zajęć ({dh_day.capitalize()} {dh_hours})",
+                    )
+                )
+
+        self.editor_overlays = extracted_overlays
+
+        # 3. Footer Annotations
+        loc = (
+            getattr(layout, "campus_location_note", None)
+            or getattr(layout.footer, "campus_location_note", None)
+            or getattr(layout.footer, "location_note", None)
+            or (getattr(self.wizard_frame.config, "campus_location_note", None) if hasattr(self, "wizard_frame") else None)
+            or ""
+        )
+        self.editor_campus_loc_var.set(loc)
+
+        dean = (
+            getattr(layout, "dean_hours_note", None)
+            or getattr(layout.footer, "dean_hours_note", None)
+            or (getattr(self.wizard_frame.config, "dean_hours_note", None) if hasattr(self, "wizard_frame") else None)
+            or ""
+        )
+        if not dean and getattr(layout, "deans_hour", None):
+            dh = layout.deans_hour
+            dean = f"Godziny dziekańskie: {str(dh.get('day', '')).capitalize()} {dh.get('hours', '')}".strip()
+        self.editor_dean_hours_var.set(dean)
+
+        sig = (
+            getattr(layout, "author_signature", None)
+            or getattr(layout.footer, "author_signature", None)
+            or (getattr(self.wizard_frame.config, "author_signature", None) if hasattr(self, "wizard_frame") else None)
+            or ""
+        )
+        self.editor_author_sig_var.set(sig)
+
+        # 4. Canvas Notes / Remarks / Abbreviations
+        notes_list: List[str] = []
+
+        def _add_note(n: Optional[str]):
+            if n and isinstance(n, str) and n.strip() and n.strip() not in notes_list:
+                notes_list.append(n.strip())
+
+        for n in (getattr(layout, "custom_notes", None) or []):
+            _add_note(n)
+        for n in (getattr(layout.footer, "custom_notes", None) or []):
+            _add_note(n)
+        for n in (getattr(layout, "general_notes", None) or []):
+            _add_note(n)
+        for n in (getattr(layout.footer, "general_notes", None) or []):
+            _add_note(n)
+        for item in (getattr(layout.footer, "warning_lines", None) or []):
+            txt = item[0] if isinstance(item, (list, tuple)) else str(item)
+            _add_note(txt)
+        for item in (getattr(layout.footer, "abbreviations", None) or []):
+            txt = item[0] if isinstance(item, (list, tuple)) else str(item)
+            _add_note(txt)
+        if hasattr(self, "wizard_frame"):
+            for n in (getattr(self.wizard_frame.config, "custom_notes", None) or []):
+                _add_note(n)
+            for n in (getattr(self.wizard_frame.config, "general_notes", None) or []):
+                _add_note(n)
+
+        self.editor_notes = notes_list
+
+        self._refresh_editor_styling_tab()
+
+    def _sync_editor_state_to_layout(self) -> None:
+        """Synchronize editor working state into timetable.layout for export parity."""
+        if self.timetable is None:
+            return
+        if self.timetable.layout is None:
+            self.timetable.layout = TimetableLayout.create_default()
+        layout = self.timetable.layout
+
+        layout.categories = [copy.deepcopy(c) for c in self.editor_categories]
+        if layout.footer is None:
+            layout.footer = FooterMetadata()
+        layout.footer.active_categories = [copy.deepcopy(c) for c in self.editor_categories]
+        layout.legend_categories = [
+            CategoryLegendItem(name=c.name, color=c.color, description=c.description)
+            for c in self.editor_categories
+        ]
+        layout.footer.legend_categories = list(layout.legend_categories)
+
+        layout.custom_overlays = [copy.deepcopy(o) for o in self.editor_overlays]
+        layout.background_overlays = [copy.deepcopy(o) for o in self.editor_overlays]
+
+        campus_loc = self.editor_campus_loc_var.get().strip() or None
+        dean_note = self.editor_dean_hours_var.get().strip() or None
+        author_sig = self.editor_author_sig_var.get().strip() or None
+
+        layout.campus_location_note = campus_loc
+        layout.footer.campus_location_note = campus_loc
+        layout.footer.location_note = campus_loc
+
+        layout.dean_hours_note = dean_note
+        layout.footer.dean_hours_note = dean_note
+
+        layout.author_signature = author_sig
+        layout.footer.author_signature = author_sig
+
+        layout.custom_notes = list(self.editor_notes)
+        layout.footer.custom_notes = list(self.editor_notes)
+        layout.general_notes = list(self.editor_notes)
+        layout.footer.general_notes = list(self.editor_notes)
+
+    def _sync_editor_state_to_wizard_config(self) -> None:
+        """Synchronize editor working state to wizard config for parity in project saves."""
+        if not hasattr(self, "wizard_frame"):
+            return
+        cfg = self.wizard_frame.config
+        if self.current_mode == "create":
+            # In wizard mode, wizard config is the source of truth
+            self.editor_categories = [copy.deepcopy(c) for c in cfg.categories]
+            self.editor_overlays = [copy.deepcopy(o) for o in cfg.custom_overlays]
+            if cfg.campus_location_note:
+                self.editor_campus_loc_var.set(cfg.campus_location_note)
+            if cfg.dean_hours_note:
+                self.editor_dean_hours_var.set(cfg.dean_hours_note)
+            if cfg.author_signature:
+                self.editor_author_sig_var.set(cfg.author_signature)
+            if cfg.custom_notes or cfg.general_notes:
+                self.editor_notes = list(cfg.custom_notes or cfg.general_notes)
+        else:
+            # In editor mode, editor working state updates wizard config
+            cfg.categories = [copy.deepcopy(c) for c in self.editor_categories]
+            cfg.custom_overlays = [copy.deepcopy(o) for o in self.editor_overlays]
+            cfg.campus_location_note = self.editor_campus_loc_var.get().strip() or None
+            cfg.dean_hours_note = self.editor_dean_hours_var.get().strip() or None
+            cfg.author_signature = self.editor_author_sig_var.get().strip() or None
+            cfg.custom_notes = list(self.editor_notes)
+            cfg.general_notes = list(self.editor_notes)
+            self.wizard_frame._sync_step6_from_config()
+            self.wizard_frame._refresh_step6()
+
     def _on_add_slot(self, day: str) -> None:
         if self.timetable is None:
             messagebox.showinfo("No File Loaded", "Please load a PDF timetable first.", parent=self.root)
             return
 
-        cats = self.timetable.layout.categories if (self.timetable and self.timetable.layout) else []
-        dlg = SlotDialog(self.root, title=f"Add Class Slot ({day.capitalize()})", initial_day=day, available_categories=cats)
+        cats = self.editor_categories
+        dlg = SlotDialog(
+            self.root,
+            title=f"Add Class Slot ({day.capitalize()})",
+            initial_day=day,
+            available_categories=cats,
+        )
         self.root.wait_window(dlg)
         if dlg.result:
             target_day, entry = dlg.result
@@ -3626,17 +4542,28 @@ class TimetableGUI:
             messagebox.showinfo("No File Loaded", "Please load a PDF timetable first.", parent=self.root)
             return
 
-        tree = self.tree_views[day]
+        tree = self.tree_views.get(day)
+        if not tree:
+            return
         sel = tree.selection()
         if not sel:
             messagebox.showinfo("Selection Required", "Please select a slot to edit.", parent=self.root)
             return
 
         idx = int(sel[0])
-        entry = self.timetable.get_entries(day)[idx]
+        entries = self.timetable.get_entries(day)
+        if idx < 0 or idx >= len(entries):
+            return
+        entry = entries[idx]
 
-        cats = self.timetable.layout.categories if (self.timetable and self.timetable.layout) else []
-        dlg = SlotDialog(self.root, title=f"Edit Slot #{idx} ({day.capitalize()})", initial_day=day, entry=entry, available_categories=cats)
+        cats = self.editor_categories
+        dlg = SlotDialog(
+            self.root,
+            title=f"Edit Slot #{idx} ({day.capitalize()})",
+            initial_day=day,
+            entry=entry,
+            available_categories=cats,
+        )
         self.root.wait_window(dlg)
         if dlg.result:
             target_day, updated_entry = dlg.result
@@ -3656,14 +4583,19 @@ class TimetableGUI:
             messagebox.showinfo("No File Loaded", "Please load a PDF timetable first.", parent=self.root)
             return
 
-        tree = self.tree_views[day]
+        tree = self.tree_views.get(day)
+        if not tree:
+            return
         sel = tree.selection()
         if not sel:
             messagebox.showinfo("Selection Required", "Please select a slot to delete.", parent=self.root)
             return
 
         idx = int(sel[0])
-        entry = self.timetable.get_entries(day)[idx]
+        entries = self.timetable.get_entries(day)
+        if idx < 0 or idx >= len(entries):
+            return
+        entry = entries[idx]
 
         if messagebox.askyesno("Confirm Deletion", f"Delete '{entry.subject}' ({entry.hours})?", parent=self.root):
             self.timetable.delete_entry(day, idx)
@@ -3692,27 +4624,21 @@ class TimetableGUI:
         json_window.bind("<Escape>", lambda e: json_window.destroy())
 
     def _on_save_regenerate(self) -> None:
-        if self.timetable is None or self.storage is None:
+        if self.timetable is None:
             messagebox.showwarning("No Timetable", "Please load a PDF timetable before saving.", parent=self.root)
             return
 
+        if self.storage is None:
+            pdf_candidate = (
+                Path(self.file_path_var.get())
+                if (self.file_path_var.get() and not self.file_path_var.get().startswith("No "))
+                else Path("timetable.pdf")
+            )
+            self.storage = StorageManager(input_pdf_path=pdf_candidate, base_output_dir=self.base_output_dir)
+
         try:
-            if hasattr(self, "wizard_frame"):
-                cfg = self.wizard_frame.config
-                if cfg.categories and not self.timetable.layout.categories:
-                    self.timetable.layout.categories = list(cfg.categories)
-                if cfg.custom_overlays and not self.timetable.layout.custom_overlays:
-                    self.timetable.layout.custom_overlays = list(cfg.custom_overlays)
-                if cfg.custom_notes and not self.timetable.layout.custom_notes:
-                    self.timetable.layout.custom_notes = list(cfg.custom_notes)
-                if cfg.campus_location_note:
-                    self.timetable.layout.footer.campus_location_note = cfg.campus_location_note
-                if cfg.dean_hours_note:
-                    self.timetable.layout.footer.dean_hours_note = cfg.dean_hours_note
-                if cfg.author_signature:
-                    self.timetable.layout.footer.author_signature = cfg.author_signature
-                if cfg.general_notes:
-                    self.timetable.layout.footer.general_notes = list(cfg.general_notes)
+            self._sync_editor_state_to_layout()
+            self._sync_editor_state_to_wizard_config()
 
             self.storage.save_modified(self.timetable)
             self.generator.generate(self.timetable, self.storage.output_pdf_path)
@@ -3742,13 +4668,8 @@ class TimetableGUI:
         if not dest:
             return
 
-        if self.timetable:
-            if self.wizard_frame.config.categories and not self.timetable.layout.categories:
-                self.timetable.layout.categories = list(self.wizard_frame.config.categories)
-            if self.wizard_frame.config.custom_overlays and not self.timetable.layout.custom_overlays:
-                self.timetable.layout.custom_overlays = list(self.wizard_frame.config.custom_overlays)
-            if self.wizard_frame.config.custom_notes and not self.timetable.layout.custom_notes:
-                self.timetable.layout.custom_notes = list(self.wizard_frame.config.custom_notes)
+        self._sync_editor_state_to_layout()
+        self._sync_editor_state_to_wizard_config()
 
         proj = ScheduleProject(
             name=Path(dest).stem,
@@ -3804,11 +4725,15 @@ class TimetableGUI:
             if proj.timetable:
                 self.timetable = proj.timetable
                 self.baseline_timetable = proj.baseline_timetable or copy.deepcopy(proj.timetable)
+                self._extract_editor_state_from_timetable()
                 self._refresh_all_tables()
                 self.file_path_var.set(str(src))
                 self.set_mode("edit")
-                self.status_var.set(f"Loaded project '{Path(src).name}' with {self.timetable.count_total_entries()} slots.")
+                self.status_var.set(
+                    f"Loaded project '{Path(src).name}' with {self.timetable.count_total_entries()} slots."
+                )
             else:
+                self._extract_editor_state_from_timetable()
                 self.set_mode("create")
                 self.status_var.set(f"Loaded project configuration '{Path(src).name}'.")
 
@@ -3858,7 +4783,9 @@ class TimetableGUI:
                     else:
                         baseline = Timetable.from_json(Path(src).read_text(encoding="utf-8"))
                 if baseline is None:
-                    messagebox.showerror("Diff Error", "The selected file does not contain a timetable schedule.", parent=self.root)
+                    messagebox.showerror(
+                        "Diff Error", "The selected file does not contain a timetable schedule.", parent=self.root
+                    )
                     return
                 self.baseline_timetable = baseline
             except Exception as e:
@@ -3867,7 +4794,9 @@ class TimetableGUI:
 
         diff_tt, changes = compute_timetable_diff(baseline, self.timetable)
         if not changes:
-            messagebox.showinfo("Diff Result", "Zero differences detected between current schedule and baseline state.", parent=self.root)
+            messagebox.showinfo(
+                "Diff Result", "Zero differences detected between current schedule and baseline state.", parent=self.root
+            )
             return
 
         self.timetable = diff_tt
@@ -3882,7 +4811,9 @@ class TimetableGUI:
             summary_lines.append(f"• [{t}] {d}: {desc}")
         if len(changes) > 10:
             summary_lines.append(f"... and {len(changes) - 10} more.")
-        summary_lines.append("\nModified cells have been marked with multi-color visual split (#E67E22) and audit footnote added.")
+        summary_lines.append(
+            "\nModified cells have been marked with multi-color visual split (#E67E22) and audit footnote added."
+        )
 
         self.status_var.set(f"Diff applied: {len(changes)} modified slots highlighted.")
         messagebox.showinfo("Diff Changes Detected", "\n".join(summary_lines), parent=self.root)
@@ -3898,3 +4829,4 @@ class TimetableGUI:
     def run(self) -> None:
         """Start Tkinter main event loop."""
         self.root.mainloop()
+

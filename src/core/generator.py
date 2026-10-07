@@ -1476,9 +1476,12 @@ class TimetablePDFGenerator:
         if getattr(footer, "abbreviations", None):
             c.setFont(self.font_regular, typo.legend_font_size)
             c.setFillColor(colors.black)
-            for text, y_off in footer.abbreviations:
+            for item in footer.abbreviations:
+                text = item[0]
+                y_off = item[1]
+                x_off = item[2] if len(item) > 2 else 170.0
                 c.drawString(
-                    bounds.table_x0 + 220.0,
+                    bounds.table_x0 + x_off,
                     self._y_to_cv(footer.y_base + y_off, bounds.page_height),
                     text,
                 )
@@ -1509,36 +1512,48 @@ class TimetablePDFGenerator:
             c.setFont(self.font_bold, typo.header_font_size - 0.5)
             c.setFillColor(colors.black)
             c.drawString(
-                bounds.table_x0 + 240.0,
-                self._y_to_cv(footer.y_base + 75.0, bounds.page_height),
+                bounds.table_x0 + 280.0,
+                self._y_to_cv(footer.y_base + 91.5, bounds.page_height),
                 footer.warning_title,
             )
         if getattr(footer, "warning_lines", None):
             c.setFont(self.font_regular, typo.legend_font_size)
             c.setFillColor(colors.black)
-            for text, y_off in footer.warning_lines:
+            for item in footer.warning_lines:
+                text = item[0]
+                y_off = item[1]
+                x_off = item[2] if len(item) > 2 else 290.0
                 c.drawString(
-                    bounds.table_x0 + 240.0,
+                    bounds.table_x0 + x_off,
                     self._y_to_cv(footer.y_base + y_off, bounds.page_height),
                     text,
                 )
         if getattr(footer, "general_notes", None):
+            warn_texts = {wl[0].strip().lower() for wl in getattr(footer, "warning_lines", [])}
             c.setFont(self.font_regular, typo.legend_font_size)
             c.setFillColor(colors.black)
-            for idx, g_note in enumerate(footer.general_notes):
+            draw_idx = 0
+            for g_note in footer.general_notes:
+                if g_note.strip().lower() not in warn_texts:
+                    c.drawString(
+                        bounds.table_x0 + 280.0,
+                        self._y_to_cv(footer.y_base + 84.0 + draw_idx * 9.0, bounds.page_height),
+                        g_note,
+                    )
+                    draw_idx += 1
+        if getattr(footer, "dean_hours_note", None):
+            has_in_legend = any(
+                "dziekan" in item.text.lower()
+                for item in getattr(footer, "legend_items", [])
+            )
+            if not has_in_legend:
+                c.setFont(self.font_regular, typo.legend_font_size)
+                c.setFillColor(colors.black)
                 c.drawString(
                     bounds.table_x0 + 240.0,
-                    self._y_to_cv(footer.y_base + 84.0 + idx * 9.0, bounds.page_height),
-                    g_note,
+                    self._y_to_cv(footer.y_base + 120.0, bounds.page_height),
+                    footer.dean_hours_note,
                 )
-        if getattr(footer, "dean_hours_note", None):
-            c.setFont(self.font_regular, typo.legend_font_size)
-            c.setFillColor(colors.black)
-            c.drawString(
-                bounds.table_x0 + 240.0,
-                self._y_to_cv(footer.y_base + 120.0, bounds.page_height),
-                footer.dean_hours_note,
-            )
 
         # 5. Signatures (if provided)
         sig_y = footer.y_base + getattr(footer, "signatures_y_offset", 180.0)
@@ -1593,6 +1608,13 @@ class TimetablePDFGenerator:
         legend_items: List[Dict[str, Any]] = []
         seen_keys = set()
 
+        # Existing colors from footer.legend_items to avoid duplicating native swatches
+        existing_legend_colors = {
+            item.color.strip().upper()
+            for item in getattr(layout.footer, "legend_items", [])
+            if hasattr(item, "color") and item.color
+        }
+
         # 1. Course Categories
         cats_to_check: List[ScheduleCategory] = []
         if hasattr(layout, "categories") and layout.categories:
@@ -1607,10 +1629,13 @@ class TimetablePDFGenerator:
                 cats_to_check.append(ScheduleCategory(category_id=f"leg_{leg.name}", name=leg.name, color=leg.color, description=leg.description))
 
         for cat in cats_to_check:
-            ck = f"cat_{cat.category_id}_{cat.name}"
+            c_color = cat.color.strip().upper() if cat.color else ""
+            if c_color in existing_legend_colors:
+                continue
+            ck = f"cat_{cat.name.strip().lower()}_{c_color}"
             if ck not in seen_keys:
                 seen_keys.add(ck)
-                label = f"{cat.name} — {cat.description}" if cat.description else cat.name
+                label = f"{cat.name} — {cat.description}" if (cat.description and cat.description != cat.name) else cat.name
                 legend_items.append({
                     "color": cat.color,
                     "label": label,
@@ -1645,7 +1670,10 @@ class TimetablePDFGenerator:
             )
 
         for ov in overlays_to_check:
-            ok = f"ov_{ov.overlay_id}_{ov.label}"
+            ov_color = ov.color.strip().upper() if ov.color else ""
+            if ov_color in existing_legend_colors:
+                continue
+            ok = f"ov_{ov.overlay_id}_{ov.label}_{ov_color}"
             if ok not in seen_keys:
                 seen_keys.add(ok)
                 desc = getattr(ov, "description", None)
